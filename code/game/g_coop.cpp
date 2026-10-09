@@ -3021,7 +3021,13 @@ void G_CoopSimonCommand( gentity_t *ent )
 		gentity_t *e = &g_entities[i];
 		if ( e->inuse && e->NPC && e->targetname && !Q_stricmp( e->targetname, "simon" ) )
 		{
+			extern void ChangeWeapon( gentity_t *ent, int newWeapon );
 			e->health = e->max_health = e->client->ps.stats[STAT_HEALTH] = e->client->ps.stats[STAT_MAX_HEALTH] = 325;
+			// jawa_armed carries WP_JAWA, whose model (jawa_gun.md3) never shipped
+			// with JA - cgame CG_Errors the first frame it draws him. A bowcaster
+			// is the closest primitive weapon that actually exists.
+			ChangeWeapon( e, WP_BOWCASTER );
+			e->s.weapon = WP_BOWCASTER;
 		}
 	}
 	G_CoopPrintTr( -1, "print", "^1SIMON DIT : ^7%s a invoque Simon l'Ewok tueur !\n",
