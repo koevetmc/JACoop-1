@@ -2223,7 +2223,7 @@ void G_CoopInitDownedCvars( void )
 	g_coopNGPlus = gi.cvar( "g_coopNGPlus", "0", CVAR_ARCHIVE|CVAR_SERVERINFO );
 	g_coopWaves = gi.cvar( "g_coopWaves", "0", CVAR_ARCHIVE|CVAR_SERVERINFO );
 	// serverinfo: joiners see how many holocrons the host scattered on the map
-	g_coopHolocrons = gi.cvar( "g_coopHolocrons", "0", CVAR_ARCHIVE|CVAR_SERVERINFO );
+	g_coopHolocrons = gi.cvar( "g_coopHolocrons", "8", CVAR_ARCHIVE|CVAR_SERVERINFO );
 	// serverinfo: joiners read the movement rules in CS_COOP_PHYSICS for prediction
 	g_mpPhysics = gi.cvar( "g_mpPhysics", "0", CVAR_ARCHIVE|CVAR_SERVERINFO );
 	// serverinfo: versus sessions show up in server info and the scoreboard
