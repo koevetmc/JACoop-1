@@ -2880,6 +2880,25 @@ static void G_CoopSendStats( int toSlot )
 	}
 }
 
+void G_CoopPublishScores( void )
+{
+	// the engine can't touch game memory at map end (dll is already unloaded
+	// when the run post fires), so scores ride a cvar: "cn,score;cn,score"
+	char	buf[256];
+	int		off = 0;
+	buf[0] = 0;
+	for ( int s = 0; s < MAX_CLIENTS; s++ )
+	{
+		gentity_t	*p = G_CoopPlayerSlot( s );
+		if ( p )
+		{
+			off += snprintf( buf + off, sizeof( buf ) - off, "%s%i,%i",
+				off ? ";" : "", s, p->client->ps.persistant[PERS_SCORE] );
+		}
+	}
+	gi.cvar_set( "sv_coopScores", buf );
+}
+
 void G_CoopBroadcastStats( void )
 {
 	// the site reads the same table through sv_coopTeam at map end
@@ -2895,6 +2914,7 @@ void G_CoopBroadcastStats( void )
 		}
 	}
 	gi.cvar_set( "sv_coopTeam", buf );
+	G_CoopPublishScores();
 
 	for ( int i = 0; i < MAX_CLIENTS; i++ )
 	{

@@ -76,6 +76,10 @@ void SV_StatusInit( void ) {
 	// ("cn,d,r,dd;..."). StatusPostMapTime ships it with the completed map.
 	Cvar_Get( "sv_coopTeam", "", CVAR_TEMP );
 	Cvar_Get( "sv_coopHolo", "", CVAR_TEMP );
+	// score snapshot ("cn,score;...") — the game publishes it on every
+	// score change so the map-end roster never has to dereference
+	// cl->gentity after the game dll is gone.
+	Cvar_Get( "sv_coopScores", "", CVAR_TEMP );
 	// game -> engine trail channel: "cn|x,y,z,x,y,z;cn|x,y,z" flushed by
 	// the game as opt-in players move; StatusCheckTrail accumulates it.
 	Cvar_Get( "sv_coopTrail", "", CVAR_TEMP );
@@ -166,28 +170,37 @@ static const char *StatusAccountFields( client_t *cl ) {
 
 static void StatusBuildRoster( char *dst, size_t dstSize, qboolean withKeys ) {
 	int		i, off = 0;
+	int		scores[MAX_CLIENTS];
+	char	tally[1100], *tok;
 
 	dst[0] = 0;
 	if ( !svs.clients ) {
 		return;
 	}
+	// scores come from the game's sv_coopScores snapshot ("cn,score;...")
+	// instead of cl->gentity — the map-end post runs after the game dll
+	// is unloaded, when that pointer dangles into unmapped memory.
+	memset( scores, 0, sizeof( scores ) );
+	Q_strncpyz( tally, Cvar_VariableString( "sv_coopScores" ), sizeof( tally ) );
+	for ( tok = strtok( tally, ";" ); tok; tok = strtok( NULL, ";" ) ) {
+		int	cn, sc;
+		if ( sscanf( tok, "%d,%d", &cn, &sc ) == 2 && cn >= 0 && cn < MAX_CLIENTS ) {
+			scores[cn] = sc;
+		}
+	}
 	for ( i = 0; i < MAX_CLIENTS && off < (int)dstSize - 96; i++ ) {
 		client_t	*cl = &svs.clients[i];
 		char		escName[MAX_NAME_LENGTH * 2];
-		int			score = 0;
 
 		if ( cl->state < CS_CONNECTED ) {
 			continue;
-		}
-		if ( cl->gentity && cl->gentity->client ) {
-			score = cl->gentity->client->persistant[PERS_SCORE];
 		}
 		StatusJsonEscape( escName, sizeof( escName ), cl->name );
 		// keys only travel in the authenticated run/death posts — the
 		// public status roster must never leak them.
 		off += Com_sprintf( dst + off, dstSize - off,
 			"%s{\"name\":\"%s\",\"score\":%i,\"ping\":%i%s}",
-			off ? "," : "", escName, score, cl->ping,
+			off ? "," : "", escName, scores[i], cl->ping,
 			withKeys ? StatusAccountFields( cl ) : "" );
 	}
 	dst[dstSize - 1] = 0;

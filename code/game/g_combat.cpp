@@ -114,6 +114,9 @@ void AddScore( gentity_t *ent, int score ) {
 	}
 	// no scoring during pre-match warmup
 	ent->client->ps.persistant[PERS_SCORE] += score;
+	if ( G_CoopIsPlayer( ent ) ) {
+		G_CoopPublishScores();	// coop: keep the site's run roster current
+	}
 }
 
 /*

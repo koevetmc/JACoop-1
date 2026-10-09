@@ -443,6 +443,7 @@ qboolean G_CoopIsUp( const gentity_t *ent );
 void	G_CoopCatchupCommand( gentity_t *ent );	// coop_cometome
 void	G_CoopQChatCommand( gentity_t *ent );	// coop_qchat <n>
 void	G_CoopBroadcastStats( void );	// coop: scoreboard rows to every player
+void	G_CoopPublishScores( void );	// coop: score snapshot into sv_coopScores
 void	G_CoopPrintScorecard( void );	// coop: end-of-map chat recap before maptransition
 void	G_CoopSimonCommand( gentity_t *ent );	// coop: simonsays — Galactic Battlegrounds cheat
 void	G_CoopWaveFrame( void );				// coop: endless wave mode (g_coopWaves)

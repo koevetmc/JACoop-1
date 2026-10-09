@@ -2880,7 +2880,7 @@ void CG_CoopDrawTeamStatus( void )
 		const gentity_t *me = &g_entities[cg_localEntNum];
 		if ( me->client )
 		{
-			for ( int i = 0; i < MAX_MISSION_OBJ; i++ )
+			for ( int i = 0; i < MAX_MISSION_OBJ && i < MAX_OBJECTIVES; i++ )
 			{
 				const objectives_t *o = &me->client->sess.mission_objectives[i];
 				if ( !o->display || o->status != OBJECTIVE_STAT_PENDING )
