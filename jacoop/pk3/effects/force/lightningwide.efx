@@ -1,0 +1,196 @@
+repeatDelay				300
+
+Electricity
+{
+	flags				useModel useBBox
+
+	count				0 1
+
+	life				65
+
+	intensity			1 3
+
+	origin2				500 -384 -2 524 384 2
+
+	size
+	{
+		start			6 9
+		end				7
+		flags			linear
+	}
+
+	shaders
+	[
+		gfx/misc/blueLine
+	]
+}
+
+Particle
+{
+	life				30
+
+	rotation			0 360
+
+	size
+	{
+		start			12 30
+		flags			random
+	}
+
+	shaders
+	[
+		gfx/misc/lightningFlash
+	]
+}
+
+Light
+{
+	name				Light1
+
+	life				80
+
+	origin				100 0 0 0 0 0
+
+	rgb
+	{
+		start			0.251 0 0.502 0.6549 0.3098 1
+	}
+
+	size
+	{
+		start			120
+	}
+}
+
+Light
+{
+	name				Light2_l
+
+	life				80
+
+	origin				190 -50 0 0 0 0
+
+	rgb
+	{
+		start			0.251 0 0.502 0.6549 0.3098 1
+	}
+
+	size
+	{
+		start			120
+	}
+}
+
+Light
+{
+	name				Light2_r
+
+	life				80
+
+	origin				190 50 0 0 0 0
+
+	rgb
+	{
+		start			0.251 0 0.502 0.6549 0.3098 1
+	}
+
+	size
+	{
+		start			120
+	}
+}
+
+Light
+{
+	name				Light3_l
+
+	life				80
+
+	origin				300 -50 0 0 0 0
+
+	rgb
+	{
+		start			0.251 0 0.502 0.6549 0.3098 1
+	}
+
+	size
+	{
+		start			120
+	}
+}
+
+Light
+{
+	name				Light3_r
+
+	life				80
+
+	origin				300 50 0 0 0 0
+
+	rgb
+	{
+		start			0.251 0 0.502 0.6549 0.3098 1
+	}
+
+	size
+	{
+		start			120
+	}
+}
+
+Light
+{
+	name				Light4_l
+
+	life				80
+
+	origin				410 -110 0 0 0 0
+
+	rgb
+	{
+		start			0.251 0 0.502 0.6549 0.3098 1
+	}
+
+	size
+	{
+		start			120
+	}
+}
+
+Light
+{
+	name				Light4_n
+
+	life				80
+
+	origin				410 0 0 0 0 0
+
+	rgb
+	{
+		start			0.251 0 0.502 0.6549 0.3098 1
+	}
+
+	size
+	{
+		start			120
+	}
+}
+
+Light
+{
+	name				Light4_r
+
+	life				80
+
+	origin				410 110 0 0 0 0
+
+	rgb
+	{
+		start			0.251 0 0.502 0.6549 0.3098 1
+	}
+
+	size
+	{
+		start			120
+	}
+}

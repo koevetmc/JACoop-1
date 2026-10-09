@@ -1,0 +1,329 @@
+repeatDelay				300
+
+Electricity
+{
+	flags				useModel useBBox
+
+	spawnFlags			org2fromTrace
+
+	count				-1 1
+
+	life				70
+
+	intensity			0.8 2.4
+
+	size
+	{
+		start			5 7
+		end				7
+		flags			linear
+	}
+
+	shaders
+	[
+		gfx/misc/blueLine
+	]
+}
+
+Particle
+{
+	life				30
+
+	rotation			0 360
+
+	size
+	{
+		start			12 26
+		flags			random
+	}
+
+	shaders
+	[
+		gfx/misc/lightningFlash
+	]
+}
+
+Light
+{
+	name				Light2
+
+	life				80
+
+	origin				85 0 0 0 0 0
+
+	rgb
+	{
+		start			0.251 0 0.502 0.6549 0.3098 1
+	}
+
+	size
+	{
+		start			80
+	}
+}
+
+Light
+{
+	name				Light3
+
+	life				80
+
+	origin				125 0 0 0 0 0
+
+	rgb
+	{
+		start			0.251 0 0.502 0.6549 0.3098 1
+	}
+
+	size
+	{
+		start			100
+	}
+}
+
+Light
+{
+	name				Light4
+
+	life				80
+
+	origin				145 0 0 0 0 0
+
+	rgb
+	{
+		start			0.251 0 0.502 0.6549 0.3098 1
+	}
+
+	size
+	{
+		start			100
+	}
+}
+
+Light
+{
+	name				Light5
+
+	life				80
+
+	origin				165 0 0 0 0 0
+
+	rgb
+	{
+		start			0.251 0 0.502 0.6549 0.3098 1
+	}
+
+	size
+	{
+		start			100
+	}
+}
+
+Light
+{
+	name				Light6
+
+	life				80
+
+	origin				185 0 0 0 0 0
+
+	rgb
+	{
+		start			0.251 0 0.502 0.6549 0.3098 1
+	}
+
+	size
+	{
+		start			100
+	}
+}
+
+Light
+{
+	name				Light7
+
+	life				80
+
+	origin				205 0 0 0 0 0
+
+	rgb
+	{
+		start			0.251 0 0.502 0.6549 0.3098 1
+	}
+
+	size
+	{
+		start			100
+	}
+}
+
+Light
+{
+	name				Light8
+
+	life				80
+
+	origin				225 0 0 0 0 0
+
+	rgb
+	{
+		start			0.251 0 0.502 0.6549 0.3098 1
+	}
+
+	size
+	{
+		start			100
+	}
+}
+
+Light
+{
+	name				Light9
+
+	life				80
+
+	origin				245 0 0 0 0 0
+
+	rgb
+	{
+		start			0.251 0 0.502 0.6549 0.3098 1
+	}
+
+	size
+	{
+		start			100
+	}
+}
+
+Light
+{
+	name				Light10
+
+	life				80
+
+	origin				185 0 0 0 0 0
+
+	rgb
+	{
+		start			0.251 0 0.502 0.6549 0.3098 1
+	}
+
+	size
+	{
+		start			100
+	}
+}
+
+Light
+{
+	name				Light11
+
+	life				80
+
+	origin				285 0 0 0 0 0
+
+	rgb
+	{
+		start			0.251 0 0.502 0.6549 0.3098 1
+	}
+
+	size
+	{
+		start			100
+	}
+}
+
+Light
+{
+	name				Light12
+
+	life				80
+
+	origin				305 0 0 0 0 0
+
+	rgb
+	{
+		start			0.251 0 0.502 0.6549 0.3098 1
+	}
+
+	size
+	{
+		start			100
+	}
+}
+
+Light
+{
+	name				Light13
+
+	life				80
+
+	origin				325 0 0 0 0 0
+
+	rgb
+	{
+		start			0.251 0 0.502 0.6549 0.3098 1
+	}
+
+	size
+	{
+		start			100
+	}
+}
+
+Light
+{
+	name				Light14
+
+	life				80
+
+	origin				345 0 0 0 0 0
+
+	rgb
+	{
+		start			0.251 0 0.502 0.6549 0.3098 1
+	}
+
+	size
+	{
+		start			100
+	}
+}
+
+Light
+{
+	name				Light15
+
+	life				80
+
+	origin				365 0 0 0 0 0
+
+	rgb
+	{
+		start			0.251 0 0.502 0.6549 0.3098 1
+	}
+
+	size
+	{
+		start			80
+	}
+}
+
+Light
+{
+	name				Light16
+
+	life				80
+
+	origin				385 0 0 0 0 0
+
+	rgb
+	{
+		start			0.251 0 0.502 0.6549 0.3098 1
+	}
+
+	size
+	{
+		start			60
+	}
+}
