@@ -488,10 +488,12 @@
 				hide			diff2
 				hide			diff3
 				hide			diff4
+				hide			diff5
 				setitemcolor		easybut		forecolor 	 1    1 1 1
 				setitemcolor		medbut		forecolor 	 1 1 1 1
 				setitemcolor		hardbut		forecolor 	 1 1 1 1
 				setitemcolor		vhardbut 	forecolor 	 1 1 1 1
+				setitemcolor		gmasterbut 	forecolor 	 1 1 1 1
 			}
 
 		}
@@ -536,11 +538,13 @@
 				hide			diff1 ;
 				show			diff2 ;
 				hide			diff3 ;
-				hide			diff4 ;
+				hide			diff4
+				hide			diff5 ;
 				setitemcolor		easybut		forecolor 	 1 1 1 1
 				setitemcolor		medbut		forecolor 	 1  1  1  1
 				setitemcolor		hardbut		forecolor 	 1 1 1 1
 				setitemcolor		vhardbut 	forecolor 	 1 1 1 1
+				setitemcolor		gmasterbut 	forecolor 	 1 1 1 1
 			}
 
 		}
@@ -585,11 +589,13 @@
 				hide			diff1 ;
 				hide			diff2 ;
 				show			diff3 ;
-				hide			diff4 ;
+				hide			diff4
+				hide			diff5 ;
 				setitemcolor		easybut		forecolor 	 1 1 1 1
 				setitemcolor		medbut		forecolor 	 1 1 1 1
 				setitemcolor		hardbut		forecolor 	 1  1   1  1
 				setitemcolor		vhardbut 	forecolor 	 1 1 1 1
+				setitemcolor		gmasterbut 	forecolor 	 1 1 1 1
 			}
 
 		}
@@ -601,6 +607,18 @@
 			style				WINDOW_STYLE_SHADER
 			rect				225 335 190 40 
 			background			"gfx/menus/menu_buttonback"			// Box around difficulty 4
+			forecolor			1 1 1 1
+			visible				0
+			decoration
+		}
+
+		itemDef 
+		{
+			name				diff5
+			group				none
+			style				WINDOW_STYLE_SHADER
+			rect				225 381 190 40 
+			background			"gfx/menus/menu_buttonback"			// Box around difficulty 5
 			forecolor			1 1 1 1
 			visible				0
 			decoration
@@ -639,11 +657,53 @@
 				setitemcolor		medbut		forecolor 	 1 1 1 1
 				setitemcolor		hardbut		forecolor 	 1 1 1 1
 				setitemcolor		vhardbut 	forecolor 	 1 1    1 1
+				setitemcolor		gmasterbut 	forecolor 	 1 1 1 1
 			}
 
 		}
 
-		// BEGIN button
+		
+		// GRAND MASTER difficulty button (coop: skill 3 -> every difficulty-gated
+		// enemy spawns, AI scales past Jedi Master)
+		itemDef 
+		{
+			name				gmasterbut
+			group				gmaster
+			text				"@JACOOP_GRAND_MAITRE"
+			font				3
+			textscale			1
+			type				ITEM_TYPE_BUTTON
+			style				WINDOW_STYLE_EMPTY
+			rect				225 381 190 40 
+			textalignx			95
+			textaligny			8
+			textalign			ITEM_ALIGN_CENTER
+			textstyle			3
+			forecolor			1 1 1 1
+			visible				1	
+			descText			"@JACOOP_PLUS_D_ENNEMIS_ENNEMIS_PLUS_FORTS"
+
+			action 
+			{ 
+				play			"sound/interface/button1.wav"
+				setcvar			g_spskill 3
+				setcvar			cg_crosshairForceHint 0
+				setcvar			handicap 50
+				hide			diff1
+				hide			diff2
+				hide			diff3
+				hide			diff4
+				show			diff5
+				setitemcolor		easybut		forecolor 	 1 1 1 1
+				setitemcolor		medbut		forecolor 	 1 1 1 1
+				setitemcolor		hardbut		forecolor 	 1 1 1 1
+				setitemcolor		vhardbut 	forecolor 	 1 1 1 1
+				setitemcolor		gmasterbut 	forecolor 	 1 1   1 1
+			}
+
+		}
+
+// BEGIN button
 		itemDef 
 		{
 			name				next_glow

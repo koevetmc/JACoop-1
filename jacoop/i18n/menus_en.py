@@ -422,4 +422,8 @@ EN = {
 
     # --- options video (menus du jeu retouches)
     'Bureau (natif)': 'Desktop (native)',
+
+    # --- difficulte (boutons du menu nouvelle partie)
+    'GRAND-MAITRE': 'GRAND MASTER',
+    "Plus d ennemis, ennemis plus forts.": 'More enemies, tougher enemies.',
 }

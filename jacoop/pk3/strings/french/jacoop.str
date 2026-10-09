@@ -439,6 +439,10 @@ REFERENCE           GARDER_CE_MANCHE
 LANG_ENGLISH        "Keep this hilt."
 LANG_FRENCH         "Garder ce manche."
 
+REFERENCE           GRAND_MAITRE
+LANG_ENGLISH        "GRAND MASTER"
+LANG_FRENCH         "GRAND-MAITRE"
+
 REFERENCE           HEBERGER
 LANG_ENGLISH        "HOST"
 LANG_FRENCH         "HEBERGER"
@@ -874,6 +878,10 @@ LANG_FRENCH         "Ping (touche) :"
 REFERENCE           PLEINE
 LANG_ENGLISH        "Full"
 LANG_FRENCH         "Pleine"
+
+REFERENCE           PLUS_D_ENNEMIS_ENNEMIS_PLUS_FORTS
+LANG_ENGLISH        "More enemies, tougher enemies."
+LANG_FRENCH         "Plus d ennemis, ennemis plus forts."
 
 REFERENCE           PNJ
 LANG_ENGLISH        "NPC"

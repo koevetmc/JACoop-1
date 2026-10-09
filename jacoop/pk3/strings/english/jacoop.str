@@ -330,6 +330,9 @@ LANG_ENGLISH        "Keep this colour."
 REFERENCE           GARDER_CE_MANCHE
 LANG_ENGLISH        "Keep this hilt."
 
+REFERENCE           GRAND_MAITRE
+LANG_ENGLISH        "GRAND MASTER"
+
 REFERENCE           HEBERGER
 LANG_ENGLISH        "HOST"
 
@@ -656,6 +659,9 @@ LANG_ENGLISH        "Ping (key):"
 
 REFERENCE           PLEINE
 LANG_ENGLISH        "Full"
+
+REFERENCE           PLUS_D_ENNEMIS_ENNEMIS_PLUS_FORTS
+LANG_ENGLISH        "More enemies, tougher enemies."
 
 REFERENCE           PNJ
 LANG_ENGLISH        "NPC"

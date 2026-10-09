@@ -439,6 +439,10 @@ REFERENCE           GARDER_CE_MANCHE
 LANG_ENGLISH        "Keep this hilt."
 LANG_GERMAN         "Keep this hilt."
 
+REFERENCE           GRAND_MAITRE
+LANG_ENGLISH        "GRAND MASTER"
+LANG_GERMAN         "GRAND MASTER"
+
 REFERENCE           HEBERGER
 LANG_ENGLISH        "HOST"
 LANG_GERMAN         "HOST"
@@ -874,6 +878,10 @@ LANG_GERMAN         "Ping (key):"
 REFERENCE           PLEINE
 LANG_ENGLISH        "Full"
 LANG_GERMAN         "Full"
+
+REFERENCE           PLUS_D_ENNEMIS_ENNEMIS_PLUS_FORTS
+LANG_ENGLISH        "More enemies, tougher enemies."
+LANG_GERMAN         "More enemies, tougher enemies."
 
 REFERENCE           PNJ
 LANG_ENGLISH        "NPC"

@@ -927,6 +927,9 @@ static void Svcmd_Secrets_f(void)
 // JEDI - g_spskill 1 + cg_crosshairForceHint 1 + handicap 100
 // JEDI KNIGHT - g_spskill 2 + cg_crosshairForceHint 0 + handicap 100
 // JEDI MASTER - g_spskill 2 + cg_crosshairForceHint 0 + handicap 50
+// GRAND MASTER - g_spskill 3 + cg_crosshairForceHint 0 + handicap 50 (coop: all
+// difficulty-gated enemies spawn — SpawnForCurrentDifficultySetting tests bit
+// 8+skill, and nothing in the maps is flagged for skill 3)
 
 extern cvar_t *g_spskill;
 static void Svcmd_Difficulty_f(void)
@@ -940,6 +943,15 @@ static void Svcmd_Difficulty_f(void)
 		else if(g_spskill->integer == 1)
 		{
 			gi.Printf( S_COLOR_GREEN "Current Difficulty: Jedi" S_COLOR_WHITE "\n" );
+		}
+		else if(g_spskill->integer == 3 && gi.Cvar_VariableIntegerValue("handicap") == 50)
+		{
+			gi.Printf( S_COLOR_GREEN "Current Difficulty: Jedi Grand Master" S_COLOR_WHITE "\n" );
+		}
+		else if(g_spskill->integer == 3)
+		{
+			gi.Printf( S_COLOR_GREEN "Current Difficulty: Jedi Grand Master (Custom)" S_COLOR_WHITE "\n" );
+			gi.Printf( S_COLOR_GREEN "Handicap: %i" S_COLOR_WHITE "\n", gi.Cvar_VariableIntegerValue("handicap") );
 		}
 		else if(g_spskill->integer == 2)
 		{
@@ -962,7 +974,7 @@ static void Svcmd_Difficulty_f(void)
 		}
 		else
 		{
-			gi.Printf( S_COLOR_RED "Invalid difficulty cvar set! g_spskill (%i) [0-2] is valid range only" S_COLOR_WHITE "\n", g_spskill->integer );
+			gi.Printf( S_COLOR_RED "Invalid difficulty cvar set! g_spskill (%i) [0-3] is valid range only" S_COLOR_WHITE "\n", g_spskill->integer );
 		}
 	}
 }
