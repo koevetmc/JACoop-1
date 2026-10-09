@@ -29,7 +29,7 @@ author and want yours removed, open an issue and it comes out.
 
 | JKHub list item | How JACoop covers it |
 |-----------------|----------------------|
-| Enable dismemberment | `g_dismemberment` defaults to **3** (full — waist/head/limbs). `g_saberMoreRealistic` is a normal archived cvar here, not cheat-gated |
+| Enable dismemberment | `g_dismemberment` defaults to **3** (full — waist/head/limbs) and `g_dismemberProbabilities` to **0**, so any valid saber hit can sever — not just the rare flagged NPC. `g_saberMoreRealistic` defaults to **1** (precise collision + higher saber damage) and is a normal archived cvar, not cheat-gated. `g_corpseRemovalTime` defaults to **60**s so dismembered bodies linger. `g_saberPickuppableDroppedSabers` defaults **1** — dropped sabers are lootable |
 | Custom resolution | OpenJK `r_customWidth`/`r_customHeight` + `r_mode -2`; UI scales automatically |
 | High FOV fix | `cg_fovAspectAdjust 1` (default) — Hor+ scaling on wide screens |
 | Simple dot crosshair | `cg_crosshairDot 1` |

@@ -656,7 +656,7 @@ void G_InitCvars( void ) {
 	g_knockback = gi.cvar( "g_knockback", "1000", CVAR_CHEAT );
 	g_dismemberment = gi.cvar ( "g_dismemberment", "3", CVAR_ARCHIVE );//0 = none, 1 = arms and hands, 2 = legs, 3 = waist and head
 	// for now I'm making default 10 seconds
-	g_corpseRemovalTime = gi.cvar ( "g_corpseRemovalTime", "10", CVAR_ARCHIVE );//number of seconds bodies stick around for, at least... 0 = never go away
+	g_corpseRemovalTime = gi.cvar ( "g_corpseRemovalTime", "60", CVAR_ARCHIVE );//number of seconds bodies stick around for, at least... 0 = never go away
 	g_synchSplitAnims = gi.cvar ( "g_synchSplitAnims", "1", 0 );
 #ifndef FINAL_BUILD
 	g_AnimWarning = gi.cvar ( "g_AnimWarning", "1", 0 );
@@ -684,9 +684,9 @@ void G_InitCvars( void ) {
 	com_buildScript = gi.cvar ("com_buildscript", "0", 0);
 
 	g_saberAutoBlocking = gi.cvar( "g_saberAutoBlocking", "1", CVAR_CHEAT );//must press +block button to do any blocking
-	g_saberRealisticCombat = gi.cvar( "g_saberMoreRealistic", "0", CVAR_ARCHIVE );//makes collision more precise, increases damage
+	g_saberRealisticCombat = gi.cvar( "g_saberMoreRealistic", "1", CVAR_ARCHIVE );//makes collision more precise, increases damage
 	debug_subdivision = gi.cvar( "debug_subdivision", "0", CVAR_ARCHIVE );//debug for dismemberment
-	g_dismemberProbabilities = gi.cvar ( "g_dismemberProbabilities", "1", CVAR_ARCHIVE );//0 = ignore probabilities, 1 = use probabilities
+	g_dismemberProbabilities = gi.cvar ( "g_dismemberProbabilities", "0", CVAR_ARCHIVE );//0 = ignore probabilities, 1 = use probabilities
 	g_saberDamageCapping = gi.cvar( "g_saberDamageCapping", "1", CVAR_CHEAT );//caps damage of sabers vs players and NPC who use sabers
 	g_saberMoveSpeed = gi.cvar( "g_saberMoveSpeed", "1", CVAR_CHEAT );//how fast you run while attacking with a saber
 	g_saberAnimSpeed = gi.cvar( "g_saberAnimSpeed", "1", CVAR_CHEAT );//how fast saber animations run
@@ -696,7 +696,7 @@ void G_InitCvars( void ) {
 	g_saberLockRandomNess = gi.cvar( "g_saberLockRandomNess", "2", CVAR_ARCHIVE );//just for debugging/development, controls frequency of saberlocks
 	g_debugMelee = gi.cvar( "g_debugMelee", "0", CVAR_CHEAT );//just for debugging/development, test kicks and grabs
 	g_saberRestrictForce = gi.cvar( "g_saberRestrictForce", "0", CVAR_ARCHIVE );//restricts certain force powers when using a 2-handed saber or 2 sabers
-	g_saberPickuppableDroppedSabers = gi.cvar( "g_saberPickuppableDroppedSabers", "0", CVAR_CHEAT );//lets you pick up sabers that are dropped
+	g_saberPickuppableDroppedSabers = gi.cvar( "g_saberPickuppableDroppedSabers", "1", CVAR_CHEAT );//lets you pick up sabers that are dropped
 
 	g_AIsurrender = gi.cvar( "g_AIsurrender", "0", CVAR_CHEAT );
 	g_numEntities = gi.cvar( "g_numEntities", "0", 0 );
