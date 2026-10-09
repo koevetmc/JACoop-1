@@ -323,6 +323,10 @@ void G_CoopUpdateAppearance( gentity_t *ent )
 		ent->s.coopForce = f;
 		// victim electrocution: the wire bit sticks on corpses, the timer decides
 		ent->s.coopShockTime = ps->powerups[PW_SHOCKED];
+		// team status panel: shield + which powers the mate has + how much pool is left
+		ent->s.coopArmor = ps->stats[STAT_ARMOR];
+		ent->s.coopForce2 = ( ps->forcePowersKnown & 0xffff )
+			| ( Q_min( 100, Q_max( 0, ps->forcePowerMax > 0 ? ps->forcePower * 100 / ps->forcePowerMax : 0 ) ) << 16 );
 	}
 	if ( !a->modelName[0] && ent->ghoul2.size() && ent->playerModel >= 0 && ent->playerModel < ent->ghoul2.size() )
 	{

@@ -569,6 +569,7 @@ extern	vmCvar_t		cg_coopPaksGen;		// coop: engine cl_coopPaksGen, bumped when a 
 extern	vmCvar_t		cg_coopHud;			// coop: 1 = the JACoop HUD, 0 = the stock hud.menu
 extern	vmCvar_t		cg_coopScore;		// coop: persistent mini scoreboard; +coop_score toggles
 extern	vmCvar_t		cg_coopTags;		// coop: 1 = name + health over living teammates
+extern	vmCvar_t		cg_coopStatus;		// coop: 1 = right-edge team status panel
 extern	vmCvar_t		cg_coopVoiceTalk;	// coop voice: talker bitmask + TX flag (written by the engine)
 extern	vmCvar_t		cg_chatBox;			// coop: ms to keep each chat line on screen (0 = off)
 extern	vmCvar_t		cg_chatBoxHeight;	// coop: bottom Y of the chat box stack
@@ -600,6 +601,7 @@ float CG_FullWidth2DW( float w );
 void CG_CoopThirdPerson_f( void );
 void CG_CoopDrawDowned( void );
 void CG_CoopDrawNametags( void );	// coop: name + health over living teammates
+void CG_CoopDrawTeamStatus( void );	// coop: right-edge roster (health, shield, force pool, power icons, objective)
 void CG_CoopPing_f( void );		// coop: "ping" svcmd, a teammate's waypoint marker
 void CG_CoopDrawPings( void );	// coop: draw the live waypoint pings
 void CG_CoopStats_f( void );	// coop: "cstat" svcmd, a scoreboard row

@@ -624,6 +624,8 @@ Ghoul2 Insert Start
 { NETF(coopForce), 32 },
 { NETF(coopShockTime), 32 },
 { NETF(coopPushTime), 32 },
+{ NETF(coopArmor), 32 },
+{ NETF(coopForce2), 32 },
 };
 
 

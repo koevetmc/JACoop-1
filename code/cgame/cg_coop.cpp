@@ -38,6 +38,7 @@ along with this program; if not, see <http://www.gnu.org/licenses/>.
 #include "cg_media.h"
 #include "../game/anims.h"
 #include "../game/wp_saber.h"
+#include "../game/objectives.h"
 #include "../game/g_vehicles.h"
 #include "../ghoul2/ghoul2_gore.h"		// CRagDollParams, CRagDollUpdateParams (le ragdoll des corps)
 
@@ -1214,6 +1215,12 @@ void CG_CoopSyncCharacter( centity_t *cent )
 			ps->powerups[PW_FORCE_PUSH_RHAND] = ( s->coopForce & COOPF_PUSH_RHAND ) ? cg.time + 1 : 0;
 			ps->forceDrainEntityNum = ( s->coopForce & COOPF_DRAIN_AREA ) ? ENTITYNUM_NONE : 0;
 			ps->powerups[PW_SHOCKED] = s->coopShockTime;
+			// team status panel (CG_CoopDrawTeamStatus reads them straight off the
+			// entityState too; mirrored here so the placeholder stays consistent)
+			ps->stats[STAT_ARMOR] = s->coopArmor;
+			ps->forcePowersKnown = s->coopForce2 & 0xffff;
+			ps->forcePowerMax = 100;
+			ps->forcePower = ( s->coopForce2 >> 16 ) & 0xff;
 		}
 	}
 	// riding: G_IsRidingVehicle reads s.m_iVehicleNum and the camera reads owner (g_vehicles.cpp Board)
@@ -2827,6 +2834,150 @@ void CG_CoopDrawNametags( void )
 	{
 		const vec4_t	voxCol = { 0.4f, 1.0f, 0.4f, 0.9f };
 		cgi_R_Font_DrawString( SCREEN_WIDTH - 40, SCREEN_HEIGHT - 28, "VOX", voxCol, small, -1, 0.9f );
+	}
+	cgi_R_SetAspect2D( 1 );
+}
+
+/*
+==============================================================================
+Team status panel
+
+A compact roster docked at the right edge: every teammate gets a name row and
+three thin bars - health, shield, force pool - plus the small force icons of the
+powers they have. Known powers sit dim, active ones light up. The first pending
+mission objective rides above the roster so "where do we go" never needs the
+datapad; waypoint pings and the downed markers cover the in-world side.
+cg_coopStatus 0 hides the whole panel.
+==============================================================================
+*/
+#define CG_COOP_PANEL_X	478.0f
+#define CG_COOP_PANEL_W	154.0f
+#define CG_COOP_PANEL_Y	66.0f
+#define CG_COOP_PANEL_MAXROWS	7
+
+void CG_CoopDrawTeamStatus( void )
+{
+	static const vec4_t	dim = { 0.85f, 0.82f, 0.72f, 0.5f };
+	static const vec4_t	downCol = { 1.0f, 0.35f, 0.3f, 0.9f };
+	static const vec4_t	armorCol = { 0.45f, 0.75f, 1.0f, 0.8f };
+	static const vec4_t	forceCol = { 0.6f, 0.5f, 1.0f, 0.8f };
+
+	if ( !cg_coopStatus.integer || !cg.snap || in_camera || cg.missionStatusShow || coopAllDownShown )
+	{
+		return;
+	}
+	const playerState_t	*ps = &cg.snap->ps;
+	const int			small = cgs.media.qhFontSmall;
+	const char			*myCs = CG_ConfigString( CS_PLAYERS + ps->clientNum );
+	const qboolean		imEnemy = (qboolean)( atoi( Info_ValueForKey( myCs, "t" ) ) == TEAM_ENEMY );	// versus: which side I'm on
+	float				y = CG_COOP_PANEL_Y;
+
+	cgi_R_SetAspect2D( 0 );
+
+	// first pending objective, same text the datapad prints (mission_objectives
+	// is mirrored through CS_COOP_OBJECTIVES, so joiners see the host's list)
+	{
+		const gentity_t *me = &g_entities[cg_localEntNum];
+		if ( me->client )
+		{
+			for ( int i = 0; i < MAX_MISSION_OBJ; i++ )
+			{
+				const objectives_t *o = &me->client->sess.mission_objectives[i];
+				if ( !o->display || o->status != OBJECTIVE_STAT_PENDING )
+				{
+					continue;
+				}
+				char text[128];
+				cgi_SP_GetStringTextString( va( "OBJECTIVES_%s", objectiveTable[i].name ), text, sizeof( text ) );
+				if ( !text[0] )
+				{
+					break;
+				}
+				int tw = cgi_R_Font_StrLenPixels( G_CoopTr( "OBJECTIF", "OBJECTIVE" ), small, 0.7f );
+				cgi_R_Font_DrawString( CG_COOP_PANEL_X + CG_COOP_PANEL_W - tw, y, G_CoopTr( "OBJECTIF", "OBJECTIVE" ), dim, small, -1, 0.7f );
+				y += 9;
+				tw = cgi_R_Font_StrLenPixels( text, small, 0.62f );
+				cgi_R_Font_DrawString( CG_COOP_PANEL_X + CG_COOP_PANEL_W - tw, y, text, dim, small, -1, 0.62f );
+				y += 14;
+				break;
+			}
+		}
+	}
+
+	int rows = 0;
+	for ( int k = 0; k < MAX_CLIENTS && rows < CG_COOP_PANEL_MAXROWS; k++ )
+	{
+		const centity_t		*cent = &cg_entities[k];
+		const entityState_t	*s = &cent->currentState;
+		if ( k == ps->clientNum || !cent->currentValid || s->eType != ET_PLAYER )
+		{
+			continue;
+		}
+		const char	*cs = CG_ConfigString( CS_PLAYERS + k );
+		const char	*name = cs[0] ? Info_ValueForKey( cs, "n" ) : "";
+		if ( !name[0]
+			|| ( atoi( Info_ValueForKey( cs, "t" ) ) == TEAM_ENEMY ) != imEnemy )	// versus: no free intel on hunters
+		{
+			continue;
+		}
+		const qboolean	downed = (qboolean)( ( s->powerups & ( 1 << PW_COOP_DOWNED ) ) != 0 );
+		if ( !downed && s->coopHealth <= 0 )
+		{
+			continue;	// corpses have their own handling; a row would be noise
+		}
+
+		vec4_t	nameCol = { 1, 1, 1, 0.85f };
+		if ( cg_coopVoiceTalk.integer & ( 1 << k ) )
+		{
+			nameCol[0] = 0.4f; nameCol[1] = 1.0f; nameCol[2] = 0.4f;	// talking
+		}
+		cgi_R_Font_DrawString( CG_COOP_PANEL_X, y, name, nameCol, small, 14, 0.7f );
+
+		if ( downed )
+		{
+			const int dw = cgi_R_Font_StrLenPixels( G_CoopTr( "A TERRE", "DOWN" ), small, 0.7f );
+			cgi_R_Font_DrawString( CG_COOP_PANEL_X + CG_COOP_PANEL_W - dw, y, G_CoopTr( "A TERRE", "DOWN" ), downCol, small, -1, 0.7f );
+			y += 13;
+			rows++;
+			continue;
+		}
+
+		// force icons right-aligned: active powers lit, known-but-idle dim
+		float	ix = CG_COOP_PANEL_X + CG_COOP_PANEL_W - 8;
+		int		drawn = 0;
+		for ( int pass = 0; pass < 2 && drawn < 10; pass++ )
+		{
+			for ( int f = NUM_FORCE_POWERS - 1; f >= 0 && drawn < 10; f-- )
+			{
+				const qboolean	active = (qboolean)( ( s->coopForce & ( 1 << f ) ) != 0 );
+				const qboolean	known = (qboolean)( ( s->coopForce2 & ( 1 << f ) ) != 0 );
+				if ( pass ? ( active || !known ) : !active )
+				{
+					continue;
+				}
+				const vec4_t	ic = { 1, 1, 1, pass ? 0.25f : 0.95f };
+				cgi_R_SetColor( ic );
+				CG_DrawPic( ix, y + 1, 8, 8, force_icons[f] );
+				ix -= 9;
+				drawn++;
+			}
+		}
+		cgi_R_SetColor( NULL );
+		y += 12;
+
+		// health, shield, force pool - one thin bar each
+		const float	maxHp = s->coopMaxHealth & COOP_MAXHEALTH_MASK;
+		const float	hpFrac = maxHp > 0 ? Com_Clamp( 0.0f, 1.0f, s->coopHealth / maxHp ) : 0.0f;
+		const vec4_t hpFill = { 1.0f - hpFrac, 0.2f + 0.7f * hpFrac, 0.15f, 0.85f };
+		CG_CoopDrawBar( CG_COOP_PANEL_X, y, CG_COOP_PANEL_W, 4, hpFrac, hpFill );
+		y += 5;
+		const float	arFrac = Com_Clamp( 0.0f, 1.0f, s->coopArmor / 100.0f );
+		CG_CoopDrawBar( CG_COOP_PANEL_X, y, CG_COOP_PANEL_W, 3, arFrac, armorCol );
+		y += 4;
+		const float	fpFrac = Com_Clamp( 0.0f, 1.0f, ( ( s->coopForce2 >> 16 ) & 0xff ) / 100.0f );
+		CG_CoopDrawBar( CG_COOP_PANEL_X, y, CG_COOP_PANEL_W, 3, fpFrac, forceCol );
+		y += 9;
+		rows++;
 	}
 	cgi_R_SetAspect2D( 1 );
 }

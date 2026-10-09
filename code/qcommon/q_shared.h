@@ -2605,6 +2605,8 @@ Ghoul2 Insert End
 	int		coopForce;		// characters: COOPF_* (forcePowersActive, levels, drain sweep, push hands)
 	int		coopShockTime;	// characters: ps.powerups[PW_SHOCKED] (host level.time), 0 when none
 	int		coopPushTime;	// any entity: gentity_t::forcePushTime while being pushed, else 0
+	int		coopArmor;		// characters: ps.stats[STAT_ARMOR] (the shield)
+	int		coopForce2;		// characters: bits 0-15 = ps.forcePowersKnown, bits 16-23 = force pool %
 
 
 	void sg_export(
