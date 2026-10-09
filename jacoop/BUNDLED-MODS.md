@@ -14,6 +14,7 @@ code equivalents for other items on the JKHub recommended list
 | HQ Icons | `GGHDIcons.pk3` (JKHub recommended list) | `gfx/hud/*`, `gfx/mp/*`, `gfx/menus/*`, `gfx/mplevels/*`, `gfx/mp/siegeicons/*` | High-res HUD, menu, ammo and force-power icons — including the `f_icon_*` set the team status panel draws |
 | HQ chat icon | `(c)_HQ_Chat_Icon.pk3` (JKHub recommended list) | `gfx/2d/chat_icon_*.png`, `shaders/0chat.shader` | Crisper chat bubble/icon art |
 | HQ sniper scope (Grab) | `GGScopeHQ.pk3` (JKHub recommended list) | `gfx/2d/cropcircle.tga`, `cropcircle2.tga`, `crop_charge.tga` | High-res Disruptor scope overlay (non-border variant; the bordered one ships in the same pk3 if ever wanted) |
+| HQ fonts | `GGFontsHQ.pk3` (JKHub recommended list) | `gfx/2d/charsgrid_med.tga` only | The font `*.tga` atlases were deliberately **not** merged: the loader tries png before tga so they'd never render over our own Titillium fonts, and stock atlases + our `.fontdat` metrics would garble text. charsgrid_med is the legacy console/UI glyph grid — safe drop-in |
 
 Credit to the original authors on JKHub — these are bundled as-is; if you're an
 author and want yours removed, open an issue and it comes out.
