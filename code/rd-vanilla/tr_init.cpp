@@ -71,6 +71,7 @@ cvar_t	*r_nocurves;
 
 cvar_t	*r_dlightStyle;
 cvar_t	*r_surfaceSprites;
+cvar_t	*r_surfaceSpriteRange;
 cvar_t	*r_surfaceWeather;
 
 cvar_t	*r_windSpeed;
@@ -1616,6 +1617,7 @@ void R_Register( void )
 
 	r_dlightStyle = ri.Cvar_Get ("r_dlightStyle", "1", CVAR_ARCHIVE_ND);
 	r_surfaceSprites = ri.Cvar_Get ("r_surfaceSprites", "1", CVAR_ARCHIVE_ND);
+	r_surfaceSpriteRange = ri.Cvar_Get ("r_surfaceSpriteRange", "1.5", CVAR_ARCHIVE_ND);
 	r_surfaceWeather = ri.Cvar_Get ("r_surfaceWeather", "0", CVAR_TEMP);
 
 	r_windSpeed = ri.Cvar_Get ("r_windSpeed", "0", 0);

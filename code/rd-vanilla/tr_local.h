@@ -1129,6 +1129,7 @@ extern	cvar_t	*r_showcluster;
 
 extern cvar_t	*r_dlightStyle;
 extern cvar_t	*r_surfaceSprites;
+extern cvar_t	*r_surfaceSpriteRange;
 extern cvar_t	*r_surfaceWeather;
 
 extern cvar_t	*r_windSpeed;

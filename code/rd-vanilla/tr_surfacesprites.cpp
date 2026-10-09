@@ -160,6 +160,13 @@ static void R_SurfaceSpriteFrameUpdate(void)
 		}
 	}
 
+	// User range multiplier — extends both the fade-in distance and the
+	// hard cull distance for grass/weather sprites (r_surfaceSpriteRange).
+	if (r_surfaceSpriteRange->value > 0.0f && r_surfaceSpriteRange->value != 1.0f)
+	{
+		rangescalefactor *= r_surfaceSpriteRange->value;
+	}
+
 	// Create a set of four right vectors so that vertical sprites aren't always facing the same way.
 	// First generate a HORIZONTAL forward vector (important).
 	CrossProduct(ssViewRight, up, ssfwdvector);
