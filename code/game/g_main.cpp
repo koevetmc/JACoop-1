@@ -2224,6 +2224,7 @@ void G_RunFrame( int levelTime ) {
 	G_CoopDownedFrame();	// coop: bleed-out clocks, everyone-down flow
 	G_CoopRunRespawns();	// coop: bring dead players back beside a teammate
 	G_CoopTrailFrame();	// coop: sample opt-in player positions for the site's route map
+	G_CoopSupporterFrame();	// coop: refresh the CS_PLAYERS supporter flag when the site answers
 	G_CoopWaveFrame();		// coop: endless waves when g_coopWaves is on
 	{
 		extern void G_CoopPhysicsFrame( void );

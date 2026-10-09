@@ -463,6 +463,8 @@ void G_CoopVersusTeamCommand( gentity_t *ent );	// coop: coop_team jedi|enemy
 void G_CoopAnnounceKill( const gentity_t *victim, const gentity_t *attacker, qboolean downed );
 void G_CoopDownedThink( gentity_t *ent, usercmd_t *ucmd );
 void G_CoopDownedFrame( void );
+qboolean G_CoopIsSupporter( const gentity_t *ent );	// advjk_account on the site's supporter list
+void G_CoopSupporterFrame( void );	// coop: refresh the CS_PLAYERS s\ flag when sv_coopSupporters changes
 void G_CoopReloadCheckpoint( void );
 qboolean G_CoopDeferAutosave( void );
 qboolean CanUseInfrontOf( gentity_t *ent );	// g_utils.cpp

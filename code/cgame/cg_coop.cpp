@@ -2927,6 +2927,10 @@ void CG_CoopDrawTeamStatus( void )
 		}
 
 		vec4_t	nameCol = { 1, 1, 1, 0.85f };
+		if ( atoi( Info_ValueForKey( cs, "s" ) ) )
+		{	// site supporter: gold name
+			nameCol[0] = 1.0f; nameCol[1] = 0.75f; nameCol[2] = 0.3f;
+		}
 		if ( cg_coopVoiceTalk.integer & ( 1 << k ) )
 		{
 			nameCol[0] = 0.4f; nameCol[1] = 1.0f; nameCol[2] = 0.4f;	// talking
@@ -3270,8 +3274,10 @@ void CG_CoopDrawScoreboard( void )
 	{
 		const coopStat_t	*s = &coopStats[order[r]];
 		const char		*pcs = CG_ConfigString( CS_PLAYERS + order[r] );
+		static const vec4_t	supCol = { 1.0f, 0.75f, 0.3f, 1.0f };	// site supporter: gold name
 		const vec4_t	*col = ( cg.snap->ps.clientNum == order[r] ) ? &meCol
-			: ( atoi( Info_ValueForKey( pcs, "t" ) ) == TEAM_ENEMY ) ? &enemyCol : &rowCol;
+			: ( atoi( Info_ValueForKey( pcs, "t" ) ) == TEAM_ENEMY ) ? &enemyCol
+			: ( atoi( Info_ValueForKey( pcs, "s" ) ) ) ? &supCol : &rowCol;
 		const char		*num[5] = {
 			va( "%i", s->kills ), va( "%i", s->downs ), va( "%i", s->revives ),
 			va( "%i", s->deaths ), va( "%i", s->ping ),

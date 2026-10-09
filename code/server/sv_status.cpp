@@ -58,6 +58,10 @@ static volatile long	statusBusy;	// nonzero while a worker push is in flight
 // drains this into sv_coopCredits for the game to announce next map.
 static volatile long	statusCreditsReady;
 static char				statusCredits[512];
+// which connected accounts are site supporters — drained into
+// sv_coopSupporters so the game can flag them in CS_PLAYERS.
+static volatile long	statusSupportersReady;
+static char				statusSupporters[512];
 #endif
 
 typedef struct statusPost_s statusPost_t;
@@ -90,6 +94,9 @@ void SV_StatusInit( void ) {
 	// engine -> game credit receipt: "name|amount,name|amount" — the game
 	// reads + clears it at map start and prints the payout in chat.
 	Cvar_Get( "sv_coopCredits", "", CVAR_TEMP );
+	// engine -> game supporter list: "acct,acct" refreshed by each status
+	// reply; the game flags those players in CS_PLAYERS for the HUD.
+	Cvar_Get( "sv_coopSupporters", "", CVAR_TEMP );
 }
 
 /*
@@ -151,12 +158,14 @@ player list — same fields the getstatus reply in sv_main.cpp reports.
 ================
 StatusAccountFields
 
-Returns `"account":"x","key":"y"` (with the leading comma) when the
-client set advjk_account + advjk_key — the site verifies the pair to
-credit runs to real accounts instead of display names. "" when unset.
+Returns `"account":"x"[,"key":"y"]` (with the leading comma) when the
+client set advjk_account — the site verifies the pair to credit runs to
+real accounts instead of display names, and answers which online
+accounts are supporters. The key only travels when withKey is set;
+the public status roster carries the name alone. "" when unset.
 ================
 */
-static const char *StatusAccountFields( client_t *cl ) {
+static const char *StatusAccountFields( client_t *cl, qboolean withKey ) {
 	static char	buf[160];
 	const char	*acct, *key;
 	char		escA[64], escK[64];
@@ -166,10 +175,14 @@ static const char *StatusAccountFields( client_t *cl ) {
 	}
 	acct = Info_ValueForKey( cl->userinfo, "advjk_account" );
 	key  = Info_ValueForKey( cl->userinfo, "advjk_key" );
-	if ( !acct[0] || !key[0] ) {
+	if ( !acct[0] || ( withKey && !key[0] ) ) {
 		return "";
 	}
 	StatusJsonEscape( escA, sizeof( escA ), acct );
+	if ( !withKey ) {
+		Com_sprintf( buf, sizeof( buf ), ",\"account\":\"%s\"", escA );
+		return buf;
+	}
 	StatusJsonEscape( escK, sizeof( escK ), key );
 	Com_sprintf( buf, sizeof( buf ), ",\"account\":\"%s\",\"key\":\"%s\"", escA, escK );
 	return buf;
@@ -214,11 +227,12 @@ static void StatusBuildRoster( char *dst, size_t dstSize, qboolean withKeys ) {
 		}
 		StatusJsonEscape( escName, sizeof( escName ), cl->name );
 		// keys only travel in the authenticated run/death posts — the
-		// public status roster must never leak them.
+		// public status roster carries just the account name so the site
+		// can answer which online players are supporters.
 		off += Com_sprintf( dst + off, dstSize - off,
 			"%s{\"name\":\"%s\",\"score\":%i,\"ping\":%i,\"kills\":%i%s}",
 			off ? "," : "", escName, scores[i], cl->ping, kills[i],
-			withKeys ? StatusAccountFields( cl ) : "" );
+			StatusAccountFields( cl, withKeys ) );
 	}
 	dst[dstSize - 1] = 0;
 }
@@ -344,7 +358,7 @@ static void StatusBuildLive( char *dst, size_t dstSize ) {
 		StatusJsonEscape( escName, sizeof( escName ), cl->name );
 		off += Com_sprintf( dst + off, dstSize - off,
 			"%s{\"n\":\"%s\",\"x\":%i,\"y\":%i%s}",
-			off ? "," : "", escName, x, y, StatusAccountFields( cl ) );
+			off ? "," : "", escName, x, y, StatusAccountFields( cl, qtrue ) );
 	}
 }
 
@@ -394,7 +408,7 @@ static void StatusBuildKills( char *dst, size_t dstSize ) {
 		StatusJsonEscape( escName, sizeof( escName ), cl->name );
 		off += Com_sprintf( dst + off, dstSize - off,
 			"%s{\"n\":\"%s\",\"m\":%i,\"c\":%i%s}",
-			off ? "," : "", escName, mod, count, StatusAccountFields( cl ) );
+			off ? "," : "", escName, mod, count, StatusAccountFields( cl, qtrue ) );
 	}
 	dst[dstSize - 1] = 0;
 	(void)ctx;
@@ -435,7 +449,7 @@ static void StatusBuildTeam( char *dst, size_t dstSize ) {
 		StatusJsonEscape( escName, sizeof( escName ), cl->name );
 		off += Com_sprintf( dst + off, dstSize - off,
 			"%s{\"n\":\"%s\",\"d\":%i,\"r\":%i,\"dd\":%i%s}",
-			off ? "," : "", escName, downs, revives, deaths, StatusAccountFields( cl ) );
+			off ? "," : "", escName, downs, revives, deaths, StatusAccountFields( cl, qtrue ) );
 	}
 	dst[dstSize - 1] = 0;
 }
@@ -471,7 +485,7 @@ static void StatusBuildHolo( char *dst, size_t dstSize ) {
 		}
 		StatusJsonEscape( escName, sizeof( escName ), cl->name );
 		off += Com_sprintf( dst + off, dstSize - off,
-			"%s{\"n\":\"%s\"%s}", off ? "," : "", escName, StatusAccountFields( cl ) );
+			"%s{\"n\":\"%s\"%s}", off ? "," : "", escName, StatusAccountFields( cl, qtrue ) );
 	}
 	dst[dstSize - 1] = 0;
 }
@@ -639,7 +653,7 @@ static void StatusPostTrails( const char *mapname ) {
 			StatusJsonEscape( escName, sizeof( escName ), cl->name );
 			Com_sprintf( fields, sizeof( fields ),
 				"\"map\":\"%s\",\"name\":\"%s\",\"p\":\"%s\"%s",
-				map, escName, statusTrail[i], StatusAccountFields( cl ) );
+				map, escName, statusTrail[i], StatusAccountFields( cl, qtrue ) );
 			StatusFire( "trail", fields );
 		}
 		statusTrail[i][0] = 0;
@@ -765,6 +779,18 @@ static unsigned int __stdcall StatusPostThread( void *arg ) {
 					InterlockedExchange( &statusCreditsReady, 1 );
 				}
 			}
+			// the ping reply carries "supporters":"acct,acct" — park it so
+			// SV_StatusFrame can hand the list to the game.
+			p = strstr( buf, "\"supporters\":\"" );
+			if ( p ) {
+				const char *v = p + 14;
+				const char *e = strchr( v, '"' );
+				if ( e && e - v < (int)sizeof( statusSupporters ) ) {
+					memcpy( statusSupporters, v, e - v );
+					statusSupporters[e - v] = 0;
+					InterlockedExchange( &statusSupportersReady, 1 );
+				}
+			}
 		}
 	}
 
@@ -862,6 +888,11 @@ void SV_StatusFrame( void ) {
 	// game can read + clear it at the next map start.
 	if ( InterlockedCompareExchange( &statusCreditsReady, 0, 1 ) ) {
 		Cvar_Set( "sv_coopCredits", statusCredits );
+	}
+	// supporter list from the last ping reply — the game flags matching
+	// advjk_account clients in CS_PLAYERS for the golden HUD name.
+	if ( InterlockedCompareExchange( &statusSupportersReady, 0, 1 ) ) {
+		Cvar_Set( "sv_coopSupporters", statusSupporters );
 	}
 #endif
 

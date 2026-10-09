@@ -4500,3 +4500,66 @@ void G_CoopHolocronSpawn( void )
 		G_CoopPrintTr( -1, "print", "%i holocrons caches sur cette carte...\n", "%i holocrons hidden on this map...\n", spawned );
 	}
 }
+
+/*
+================
+G_CoopIsSupporter
+
+True when the client's linked advjk_account appears in sv_coopSupporters
+("acct,acct" — the engine refreshes it from every status reply). A bare
+name match: worst case a faker wears a gold name, credits still need
+the account key.
+================
+*/
+qboolean G_CoopIsSupporter( const gentity_t *ent ) {
+	char	userinfo[MAX_INFO_STRING], list[512];
+	char	acct[64], *tok;
+
+	gi.GetUserinfo( ent->s.number, userinfo, sizeof( userinfo ) );
+	Q_strncpyz( acct, Info_ValueForKey( userinfo, "advjk_account" ), sizeof( acct ) );
+	if ( !acct[0] ) {
+		return qfalse;
+	}
+	gi.Cvar_VariableStringBuffer( "sv_coopSupporters", list, sizeof( list ) );
+	for ( tok = strtok( list, "," ); tok; tok = strtok( NULL, "," ) ) {
+		if ( !Q_stricmp( tok, acct ) ) {
+			return qtrue;
+		}
+	}
+	return qfalse;
+}
+
+/*
+================
+G_CoopSupporterFrame
+
+The site answers the status ping with which online accounts are
+supporters; when that list changes, refresh the s\ flag in every
+CS_PLAYERS string so the HUD recolors without a reconnect.
+================
+*/
+void G_CoopSupporterFrame( void ) {
+	static char	lastList[512];
+	char		list[512];
+	int			i;
+
+	gi.Cvar_VariableStringBuffer( "sv_coopSupporters", list, sizeof( list ) );
+	if ( !strcmp( list, lastList ) ) {
+		return;
+	}
+	Q_strncpyz( lastList, list, sizeof( lastList ) );
+	for ( i = 0; i < MAX_CLIENTS; i++ ) {
+		gentity_t	*ent = &g_entities[i];
+		char		cs[MAX_INFO_STRING];
+
+		if ( !ent->inuse || !ent->client ) {
+			continue;
+		}
+		gi.GetConfigstring( CS_PLAYERS + i, cs, sizeof( cs ) );
+		if ( !cs[0] ) {
+			continue;
+		}
+		Info_SetValueForKey( cs, "s", G_CoopIsSupporter( ent ) ? "1" : "0" );
+		gi.SetConfigstring( CS_PLAYERS + i, cs );
+	}
+}

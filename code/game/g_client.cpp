@@ -599,6 +599,7 @@ void ClientUserinfoChanged( int clientNum ) {
 	Q_strcat( buf, sizeof( buf ),	  "legsModel\\\\" );
 	Q_strcat( buf, sizeof( buf ), va( "hc\\%i\\", client->pers.maxHealth ) );
 	Q_strcat( buf, sizeof( buf ), va( "snd\\%s\\", sound ) );
+	Q_strcat( buf, sizeof( buf ), va( "s\\%i\\", G_CoopIsSupporter( ent ) ? 1 : 0 ) );
 
 	gi.SetConfigstring( CS_PLAYERS+clientNum, buf );
 
