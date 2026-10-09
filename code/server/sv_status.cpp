@@ -170,7 +170,7 @@ static const char *StatusAccountFields( client_t *cl ) {
 
 static void StatusBuildRoster( char *dst, size_t dstSize, qboolean withKeys ) {
 	int		i, off = 0;
-	int		scores[MAX_CLIENTS];
+	int		scores[MAX_CLIENTS], kills[MAX_CLIENTS];
 	char	tally[1100], *tok;
 
 	dst[0] = 0;
@@ -181,11 +181,21 @@ static void StatusBuildRoster( char *dst, size_t dstSize, qboolean withKeys ) {
 	// instead of cl->gentity — the map-end post runs after the game dll
 	// is unloaded, when that pointer dangles into unmapped memory.
 	memset( scores, 0, sizeof( scores ) );
+	memset( kills, 0, sizeof( kills ) );
 	Q_strncpyz( tally, Cvar_VariableString( "sv_coopScores" ), sizeof( tally ) );
 	for ( tok = strtok( tally, ";" ); tok; tok = strtok( NULL, ";" ) ) {
 		int	cn, sc;
 		if ( sscanf( tok, "%d,%d", &cn, &sc ) == 2 && cn >= 0 && cn < MAX_CLIENTS ) {
 			scores[cn] = sc;
+		}
+	}
+	// sv_coopKills ("cn,mod,count;...") is per-map and rewritten on every
+	// kill — summed per slot it's the live "kills this run" for the panel
+	Q_strncpyz( tally, Cvar_VariableString( "sv_coopKills" ), sizeof( tally ) );
+	for ( tok = strtok( tally, ";" ); tok; tok = strtok( NULL, ";" ) ) {
+		int	cn, mod, cnt;
+		if ( sscanf( tok, "%d,%d,%d", &cn, &mod, &cnt ) == 3 && cn >= 0 && cn < MAX_CLIENTS ) {
+			kills[cn] += cnt;
 		}
 	}
 	for ( i = 0; i < MAX_CLIENTS && off < (int)dstSize - 96; i++ ) {
@@ -199,8 +209,8 @@ static void StatusBuildRoster( char *dst, size_t dstSize, qboolean withKeys ) {
 		// keys only travel in the authenticated run/death posts — the
 		// public status roster must never leak them.
 		off += Com_sprintf( dst + off, dstSize - off,
-			"%s{\"name\":\"%s\",\"score\":%i,\"ping\":%i%s}",
-			off ? "," : "", escName, scores[i], cl->ping,
+			"%s{\"name\":\"%s\",\"score\":%i,\"ping\":%i,\"kills\":%i%s}",
+			off ? "," : "", escName, scores[i], cl->ping, kills[i],
 			withKeys ? StatusAccountFields( cl ) : "" );
 	}
 	dst[dstSize - 1] = 0;
