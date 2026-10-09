@@ -11,9 +11,19 @@ code equivalents for other items on the JKHub recommended list
 |-----|--------|-------|--------------|
 | Better Force lightning effects | `z_zzDLightningPL.pk3` (JKHub recommended list) | `effects/force/lightning.efx`, `effects/force/lightningwide.efx`, `gfx/misc/blueline.jpg`, `gfx/misc/lightning3.jpg`, `gfx/misc/lightningflash.jpg` | Replaces the stock lightning effect with a brighter, flickering blue bolt |
 | Water Wake Fix | `0Wake.pk3` (JKHub recommended list) | `shaders/awake.shader` | Fixes the broken water-splash wake animation around players wading through water |
+| HQ Icons | `GGHDIcons.pk3` (JKHub recommended list) | `gfx/hud/*`, `gfx/mp/*`, `gfx/menus/*`, `gfx/mplevels/*`, `gfx/mp/siegeicons/*` | High-res HUD, menu, ammo and force-power icons — including the `f_icon_*` set the team status panel draws |
+| HQ chat icon | `(c)_HQ_Chat_Icon.pk3` (JKHub recommended list) | `gfx/2d/chat_icon_*.png`, `shaders/0chat.shader` | Crisper chat bubble/icon art |
+| HQ sniper scope (Grab) | `GGScopeHQ.pk3` (JKHub recommended list) | `gfx/2d/cropcircle.tga`, `cropcircle2.tga`, `crop_charge.tga` | High-res Disruptor scope overlay (non-border variant; the bordered one ships in the same pk3 if ever wanted) |
 
 Credit to the original authors on JKHub — these are bundled as-is; if you're an
 author and want yours removed, open an issue and it comes out.
+
+## Optional, not in the installer
+
+- **JKA Texture Overhaul 0.3** (~2 GB, 1073 files) — too big to bundle (it would
+  take the installer from ~15 MB to ~2 GB and brush GitHub's per-asset cap).
+  It's client-side anyway: drop `JKA_TexOverhaul.pk3` into `base/` on any
+  machine that wants it. No conflict with `zz_jacoop.pk3`.
 
 ## Native equivalents (already in the engine — no pk3 needed)
 
