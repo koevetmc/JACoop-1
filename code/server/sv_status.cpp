@@ -54,6 +54,10 @@ static int		statusMapStart;		// Sys_Milliseconds() when the current map started
 
 #if defined(_WIN32)
 static volatile long	statusBusy;	// nonzero while a worker push is in flight
+// last credit receipt pulled out of a run-post response — SV_StatusFrame
+// drains this into sv_coopCredits for the game to announce next map.
+static volatile long	statusCreditsReady;
+static char				statusCredits[512];
 #endif
 
 typedef struct statusPost_s statusPost_t;
@@ -83,6 +87,9 @@ void SV_StatusInit( void ) {
 	// game -> engine trail channel: "cn|x,y,z,x,y,z;cn|x,y,z" flushed by
 	// the game as opt-in players move; StatusCheckTrail accumulates it.
 	Cvar_Get( "sv_coopTrail", "", CVAR_TEMP );
+	// engine -> game credit receipt: "name|amount,name|amount" — the game
+	// reads + clears it at map start and prints the payout in chat.
+	Cvar_Get( "sv_coopCredits", "", CVAR_TEMP );
 }
 
 /*
@@ -730,7 +737,36 @@ static unsigned int __stdcall StatusPostThread( void *arg ) {
 		WinHttpSendRequest( request, headers, (DWORD)-1L,
 			post->body, (DWORD)strlen( post->body ), (DWORD)strlen( post->body ), 0 );
 	}
-	WinHttpReceiveResponse( request, NULL );
+	if ( WinHttpReceiveResponse( request, NULL ) ) {
+		// the run-post reply carries "credits":"name|amount,..." — pull it
+		// out so SV_StatusFrame can hand it to the game for a chat line.
+		char	buf[2048];
+		DWORD	avail = 0, got = 0, total = 0;
+		while ( total < sizeof( buf ) - 1 &&
+				WinHttpQueryDataAvailable( request, &avail ) && avail ) {
+			DWORD want = avail;
+			if ( want > sizeof( buf ) - 1 - total ) {
+				want = (DWORD)sizeof( buf ) - 1 - total;
+			}
+			if ( !WinHttpReadData( request, buf + total, want, &got ) || !got ) {
+				break;
+			}
+			total += got;
+		}
+		buf[total] = 0;
+		{
+			const char *p = strstr( buf, "\"credits\":\"" );
+			if ( p ) {
+				const char *v = p + 11;
+				const char *e = strchr( v, '"' );
+				if ( e && e - v < (int)sizeof( statusCredits ) ) {
+					memcpy( statusCredits, v, e - v );
+					statusCredits[e - v] = 0;
+					InterlockedExchange( &statusCreditsReady, 1 );
+				}
+			}
+		}
+	}
 
 done:
 	if ( request ) WinHttpCloseHandle( request );
@@ -820,6 +856,14 @@ void SV_StatusFrame( void ) {
 
 	StatusCheckDeath();
 	StatusCheckTrail();
+
+#if defined(_WIN32)
+	// a run-post response landed with a credit receipt — park it where the
+	// game can read + clear it at the next map start.
+	if ( InterlockedCompareExchange( &statusCreditsReady, 0, 1 ) ) {
+		Cvar_Set( "sv_coopCredits", statusCredits );
+	}
+#endif
 
 	interval = sv_statusInterval->integer;
 	if ( interval < 5 )   interval = 5;

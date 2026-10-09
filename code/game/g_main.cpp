@@ -804,6 +804,36 @@ void InitGame(  const char *mapname, const char *spawntarget, int checkSum, cons
 				gi.cvar_set( "sv_coopLastSplit", "" );
 			}
 		}
+
+		// coop: site credit receipt for the last run ("name|amount,name|amount")
+		{
+			char credits[512];
+			gi.Cvar_VariableStringBuffer( "sv_coopCredits", credits, sizeof( credits ) );
+			if ( credits[0] )
+			{
+				char	line[900];
+				char	*cur = credits;
+				int		off = Com_sprintf( line, sizeof( line ), "^5Credits: " );
+				while ( *cur && off < (int)sizeof( line ) - 80 )
+				{
+					char *comma = strchr( cur, ',' );
+					char *bar;
+					if ( comma ) *comma = 0;
+					bar = strchr( cur, '|' );
+					if ( bar )
+					{
+						*bar++ = 0;
+						off += Com_sprintf( line + off, sizeof( line ) - off,
+							"%s^7%s ^2+%s", off > 10 ? "^7, " : "", cur, bar );
+					}
+					if ( !comma ) break;
+					cur = comma + 1;
+				}
+				Q_strcat( line, sizeof( line ), "\n" );
+				gi.SendServerCommand( -1, va( "print \"%s\"", line ) );
+				gi.cvar_set( "sv_coopCredits", "" );
+			}
+		}
 	}
 	level.globalTime = globalTime;
 	Q_strncpyz( level.mapname, mapname, sizeof(level.mapname) );
