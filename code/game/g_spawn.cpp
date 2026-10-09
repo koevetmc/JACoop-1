@@ -1067,6 +1067,18 @@ extern cvar_t	*com_buildScript;
 	if (com_buildScript->integer) {	//always spawn when building a pak file
 		return qtrue;
 	}
+	if ( g_spskill->integer >= 3 )
+	{// Grand Master: union of every difficulty's set — no "not on skill 3" bit
+	 // exists (Raven reused 2048 as a class feature flag, e.g. func_breakable
+	 // NO_EXPLOSION, so testing bit 11 would wrongly cull those). Entities
+	 // flagged out of ALL real difficulties were authored to never spawn —
+	 // dev leftovers or disabled pieces — so those still stay dead.
+		if ( ( ent->spawnflags & ( 256|512|1024 ) ) == ( 256|512|1024 ) )
+		{
+			return qfalse;
+		}
+		return qtrue;
+	}
 	if ( ent->spawnflags & ( 1 << (8 + g_spskill->integer )) )	{// easy -256	medium -512		hard -1024
 		return qfalse;
 	} else {

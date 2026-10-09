@@ -959,6 +959,20 @@ static void Player_RestoreFromPrevLevel(gentity_t *ent, SavedGameJustLoaded_e eS
 				ent->client->ps.dualSabers = qfalse;
 			}
 
+			// coop: never carry transient weapon/lock state across a level -
+			// a snapshot taken mid-cutscene can park the weapon lowered
+			// (WEAPON_IDLE, can't swing - e.g. yavin1's saber-only tree) or
+			// fake a saber lock against an entity that does not exist here.
+			client->ps.weaponstate = WEAPON_READY;
+			client->ps.saberLockTime = 0;
+			client->ps.saberLockEnemy = ENTITYNUM_NONE;
+			if ( client->ps.weapon == WP_NONE
+				|| !( client->ps.stats[STAT_WEAPONS] & ( 1 << client->ps.weapon ) ) )
+			{//snapshot's weapon isn't ours - fall back to the saber we own
+				client->ps.weapon = ( client->ps.stats[STAT_WEAPONS] & ( 1 << WP_SABER ) )
+					? WP_SABER : WP_NONE;
+			}
+
 // slight issue with ths for the moment in that although it'll correctly restore angles it doesn't take into account
 //	the overall map orientation, so (eg) exiting east to enter south will be out by 90 degrees, best keep spawn angles for now
 //
