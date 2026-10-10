@@ -5620,6 +5620,37 @@ static void G_CoopPortalPlace( gentity_t *ent, int slot )
 			}
 		}
 	}
+
+	// reject placements where the oval hangs off an edge: every rim point must
+	// have surface right behind it.  A rim point already inside solid (a rock
+	// corner poking through the oval) counts as a fail too — the oval would
+	// clip into it and funnel travellers into the rock.
+	{
+		vec3_t	f, r, u, edge, front, back;
+		trace_t	tr2;
+		int		i, ok = 0;
+
+		G_CoopPortalFrame( p->movedir, f, r, u );
+		for ( i = 0; i < 16; i++ )
+		{
+			const float a = (float)i / 16.0f * 2.0f * (float)M_PI;
+			VectorMA( org, cos( a ) * PORTAL_HW, r, edge );
+			VectorMA( edge, sin( a ) * PORTAL_HH, u, edge );
+			VectorMA( edge, 4.0f, p->movedir, front );
+			VectorMA( edge, -6.0f, p->movedir, back );
+			gi.trace( &tr2, front, NULL, NULL, back, cn, MASK_SOLID, (EG2_Collision)0, 0 );
+			if ( tr2.fraction < 1.0f && !tr2.startsolid )
+			{
+				ok++;
+			}
+		}
+		if ( ok < 13 )
+		{
+			G_FreeEntity( p );
+			gi.SendServerCommand( cn, "print \"portal: no room — needs a bigger, flatter surface\n\"" );
+			return;
+		}
+	}
 	G_SetOrigin( p, org );
 	p->contents = 0;
 	p->clipmask = 0;
@@ -5728,27 +5759,36 @@ static void G_CoopPortalTravel( gentity_t *e, gentity_t *src, gentity_t *dst, co
 	VectorMA( dest, 4.0f, dst->movedir, dest );
 
 	// the mapped spot can land inside geometry — the exit portal sits lower
-	// than the entry point, or its oval is close to an edge.  Probe a clear
-	// box out along the exit normal and trace back to the plane; if even the
-	// probe is buried, slide the exit up the plane until it frees.
+	// than the entry point, or its oval is near an edge.  Box-test the exit
+	// point directly, then slide along the plane (up, down, left, right)
+	// until the box is free.
 	{
 		vec3_t	fB, rB, uB, probe, tryd;
 		trace_t	tr2;
-		int		k;
+		int		k, d;
+		qboolean placed = qfalse;
 
 		G_CoopPortalFrame( dst->movedir, fB, rB, uB );
-		VectorCopy( dest, tryd );
-		for ( k = 0; k < 12; k++ )
+		for ( d = 0; d < 4 && !placed; d++ )
 		{
-			VectorMA( tryd, 32.0f, dst->movedir, probe );
-			gi.trace( &tr2, probe, e->mins, e->maxs, tryd, e->s.number,
-				MASK_PLAYERSOLID, (EG2_Collision)0, 0 );
-			if ( !tr2.startsolid )
+			const vec3_t	*dir = ( d < 2 ) ? &uB : &rB;
+			const float		step = ( d & 1 ) ? -8.0f : 8.0f;
+
+			VectorCopy( dest, tryd );
+			for ( k = 0; k < 12; k++ )
 			{
-				VectorCopy( tr2.endpos, dest );
-				break;
+				// stationary box-overlap test: nudge 1u out of the plane
+				VectorMA( tryd, 1.0f, dst->movedir, probe );
+				gi.trace( &tr2, tryd, e->mins, e->maxs, probe, e->s.number,
+					MASK_PLAYERSOLID, (EG2_Collision)0, 0 );
+				if ( !tr2.startsolid && !tr2.allsolid )
+				{
+					VectorCopy( tryd, dest );
+					placed = qtrue;
+					break;
+				}
+				VectorMA( tryd, step, *dir, tryd );
 			}
-			VectorMA( tryd, 8.0f, uB, tryd );
 		}
 	}
 
