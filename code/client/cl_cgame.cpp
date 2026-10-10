@@ -2018,6 +2018,11 @@ during times of significant packet loss.
 #define	RESET_TIME	300
 
 void CL_AdjustTimeDelta( void ) {
+	// a demo's recorded clock never drifts
+	if ( clc.demoplaying ) {
+		cl.newSnapshots = qfalse;
+		return;
+	}
 /*
 	cl.newSnapshots = qfalse;
 	// if the current time is WAY off, just correct to the current value
@@ -2125,6 +2130,15 @@ void CL_SetCGameTime( void ) {
 		if ( cls.state != CA_PRIMED ) {
 			return;
 		}
+		if ( clc.demoplaying ) {
+			// the first snapshot must not arrive on the same frame as the
+			// gamestate, or the load time shows up as a time skip
+			if ( !clc.firstDemoFrameSkipped ) {
+				clc.firstDemoFrameSkipped = qtrue;
+				return;
+			}
+			CL_ReadDemoMessage();
+		}
 		if ( cl.newSnapshots ) {
 			cl.newSnapshots = qfalse;
 			CL_FirstSnapshot();
@@ -2177,6 +2191,19 @@ void CL_SetCGameTime( void ) {
 	// make a huge adjustment
 	if ( cl.newSnapshots ) {
 		CL_AdjustTimeDelta();
+	}
+
+	if ( !clc.demoplaying ) {
+		return;
+	}
+
+	// playing back a demo: keep feeding recorded messages until the
+	// snapshot in hand is ahead of our clock
+	while ( cl.serverTime >= cl.frame.serverTime ) {
+		CL_ReadDemoMessage();
+		if ( cls.state != CA_ACTIVE ) {
+			return;		// end of demo
+		}
 	}
 }
 

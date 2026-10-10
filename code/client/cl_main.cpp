@@ -276,6 +276,14 @@ void CL_Disconnect( void ) {
 		CL_WritePacket();
 	}
 
+	if ( clc.demorecording ) {
+		CL_StopRecord_f();
+	}
+	if ( clc.demofile ) {
+		FS_FCloseFile( clc.demofile );
+		clc.demofile = 0;
+	}
+
 	CL_CoopTransferAbort();	// coop: drop a partial download, unload the host's packs (clc is wiped below)
 
 	CL_ClearState ();
@@ -500,6 +508,303 @@ void CL_Disconnect_f( void ) {
 	if ( cls.state != CA_DISCONNECTED && cls.state != CA_CINEMATIC ) {
 		Com_Error (ERR_DISCONNECT, "Disconnected from server");
 	}
+}
+
+
+/*
+=======================================================================
+
+CLIENT SIDE DEMO RECORDING (ported from codemp; the SP engine had none)
+
+The file is a stream of [long seq][long len][server message bytes] - the
+svc stream exactly as it arrived after netchan, so playback feeds it back
+into CL_ParseServerMessage unchanged. SP has no entity baselines, so the
+recorded gamestate is just svc_gamestate + configstrings, the same shape
+SV_SendClientGameState writes.
+=======================================================================
+*/
+
+/*
+====================
+CL_WriteDemoMessage
+
+Dumps the current net message, prefixed by the length
+====================
+*/
+void CL_WriteDemoMessage ( msg_t *msg, int headerBytes ) {
+	int		len, swlen;
+
+	// write the packet sequence
+	swlen = LittleLong( clc.serverMessageSequence );
+	FS_Write( &swlen, 4, clc.demofile );
+
+	// skip the packet sequencing information
+	len = msg->cursize - headerBytes;
+	swlen = LittleLong( len );
+	FS_Write( &swlen, 4, clc.demofile );
+	FS_Write( msg->data + headerBytes, len, clc.demofile );
+}
+
+/*
+====================
+CL_StopRecord_f
+
+stop recording a demo
+====================
+*/
+void CL_StopRecord_f( void ) {
+	int		len;
+
+	if ( !clc.demorecording ) {
+		Com_Printf ("Not recording a demo.\n");
+		return;
+	}
+
+	// finish up
+	len = -1;
+	FS_Write( &len, 4, clc.demofile );
+	FS_Write( &len, 4, clc.demofile );
+	FS_FCloseFile( clc.demofile );
+	clc.demofile = 0;
+	clc.demorecording = qfalse;
+	Com_Printf ("Stopped demo.\n");
+}
+
+/*
+==================
+CL_DemoFilename
+==================
+*/
+static void CL_DemoFilename( char *buf, int bufSize ) {
+	time_t	rawtime;
+	char	timeStr[32] = {0};
+
+	time( &rawtime );
+	strftime( timeStr, sizeof( timeStr ), "%Y-%m-%d_%H-%M-%S", localtime( &rawtime ) );
+	Com_sprintf( buf, bufSize, "demo%s", timeStr );
+}
+
+/*
+====================
+CL_Record_f
+
+record <demoname>
+
+Begins recording a demo from the current position
+====================
+*/
+static char	demoName[MAX_QPATH];
+void CL_Record_f( void ) {
+	char		name[MAX_OSPATH];
+	byte		bufData[MAX_MSGLEN];
+	msg_t		buf;
+	int			i;
+	int			len;
+	char		*s;
+
+	if ( Cmd_Argc() > 2 ) {
+		Com_Printf ("record <demoname>\n");
+		return;
+	}
+
+	if ( clc.demorecording ) {
+		Com_Printf ("Already recording.\n");
+		return;
+	}
+
+	if ( clc.demoplaying ) {
+		Com_Printf ("Can't record a demo that's playing back.\n");
+		return;
+	}
+
+	if ( cls.state != CA_ACTIVE ) {
+		Com_Printf ("You must be in a level to record.\n");
+		return;
+	}
+
+	if ( Cmd_Argc() == 2 ) {
+		s = Cmd_Argv(1);
+		Q_strncpyz( demoName, s, sizeof( demoName ) );
+	} else {
+		CL_DemoFilename( demoName, sizeof( demoName ) );	// timestamped name
+	}
+	Com_sprintf( name, sizeof(name), "demos/%s.dm_%d", demoName, PROTOCOL_VERSION );
+
+	Com_Printf( "recording to %s.\n", name );
+	clc.demofile = FS_FOpenFileWrite( name, qfalse );
+	if ( !clc.demofile ) {
+		Com_Printf( "ERROR: couldn't open %s\n", name );
+		return;
+	}
+	clc.demorecording = qtrue;
+	Q_strncpyz( clc.demoName, demoName, sizeof( clc.demoName ) );
+
+	// don't start saving messages until a non-delta compressed message is received
+	clc.demowaiting = qtrue;
+
+	// write out the gamestate message - SP's format: svc_gamestate,
+	// serverCommandSequence, then every configstring, ended by a 0 byte
+	MSG_Init( &buf, bufData, sizeof(bufData) );
+	MSG_WriteByte( &buf, svc_gamestate );
+	MSG_WriteLong( &buf, clc.serverCommandSequence );
+
+	for ( i = 0 ; i < MAX_CONFIGSTRINGS ; i++ ) {
+		if ( !cl.gameState.stringOffsets[i] ) {
+			continue;
+		}
+		s = cl.gameState.stringData + cl.gameState.stringOffsets[i];
+		MSG_WriteByte( &buf, svc_configstring );
+		MSG_WriteShort( &buf, i );
+		MSG_WriteString( &buf, s );
+	}
+	MSG_WriteByte( &buf, svc_bad );	// CL_ParseGamestate stops on cmd <= 0
+
+	// write it to the demo file
+	len = LittleLong( clc.serverMessageSequence - 1 );
+	FS_Write( &len, 4, clc.demofile );
+
+	len = LittleLong( buf.cursize );
+	FS_Write( &len, 4, clc.demofile );
+	FS_Write( buf.data, buf.cursize, clc.demofile );
+
+	// the rest of the demo file will be copied from net messages
+}
+
+/*
+=======================================================================
+
+CLIENT SIDE DEMO PLAYBACK
+
+=======================================================================
+*/
+
+/*
+=================
+CL_DemoCompleted
+=================
+*/
+static void CL_DemoCompleted( void ) {
+	CL_Disconnect();	// back to the main menu, same as "disconnect"
+}
+
+/*
+=================
+CL_ReadDemoMessage
+=================
+*/
+void CL_ReadDemoMessage( void ) {
+	int			r;
+	msg_t		buf;
+	byte		bufData[ MAX_MSGLEN ];
+	int			s;
+
+	if ( !clc.demofile ) {
+		CL_DemoCompleted();
+		return;
+	}
+
+	// get the sequence number
+	r = FS_Read( &s, 4, clc.demofile );
+	if ( r != 4 ) {
+		CL_DemoCompleted();
+		return;
+	}
+	clc.serverMessageSequence = LittleLong( s );
+
+	// init the message
+	MSG_Init( &buf, bufData, sizeof( bufData ) );
+
+	// get the length
+	r = FS_Read( &buf.cursize, 4, clc.demofile );
+	if ( r != 4 ) {
+		CL_DemoCompleted();
+		return;
+	}
+	buf.cursize = LittleLong( buf.cursize );
+	if ( buf.cursize == -1 ) {
+		CL_DemoCompleted();
+		return;
+	}
+	if ( buf.cursize > buf.maxsize ) {
+		Com_Error( ERR_DROP, "CL_ReadDemoMessage: demoMsglen > MAX_MSGLEN" );
+	}
+	r = FS_Read( buf.data, buf.cursize, clc.demofile );
+	if ( r != buf.cursize ) {
+		Com_Printf( "Demo file was truncated.\n" );
+		CL_DemoCompleted();
+		return;
+	}
+
+	clc.lastPacketTime = cls.realtime;
+	buf.readcount = 0;
+	CL_ParseServerMessage( &buf );
+}
+
+/*
+====================
+CL_CompleteDemoName
+====================
+*/
+static void CL_CompleteDemoName( char *args, int argNum )
+{
+	if ( argNum == 2 )
+	{
+		char demoExt[16];
+
+		Com_sprintf( demoExt, sizeof( demoExt ), ".dm_%d", PROTOCOL_VERSION );
+		Field_CompleteFilename( "demos", demoExt, qtrue, qtrue );
+	}
+}
+
+/*
+====================
+CL_PlayDemo_f
+
+demo <demoname>
+
+====================
+*/
+void CL_PlayDemo_f( void ) {
+	char		name[MAX_OSPATH], extension[32];
+	char		*arg;
+
+	if ( Cmd_Argc() != 2 ) {
+		Com_Printf( "demo <demoname>\n" );
+		return;
+	}
+
+	arg = Cmd_Argv(1);
+
+	// ends any running session - the host's in-process server too
+	CL_Disconnect();
+
+	Com_sprintf( extension, sizeof( extension ), ".dm_%d", PROTOCOL_VERSION );
+	if ( !Q_stricmp( arg + strlen(arg) - strlen(extension), extension ) ) {
+		Com_sprintf( name, sizeof(name), "demos/%s", arg );
+	} else {
+		Com_sprintf( name, sizeof(name), "demos/%s.dm_%d", arg, PROTOCOL_VERSION );
+	}
+
+	FS_FOpenFileRead( name, &clc.demofile, qtrue );
+	if ( !clc.demofile ) {
+		Com_Error( ERR_DROP, "couldn't open %s", name );
+		return;
+	}
+	Q_strncpyz( clc.demoName, arg, sizeof( clc.demoName ) );
+
+	Con_Close();
+
+	cls.state = CA_CONNECTED;
+	clc.demoplaying = qtrue;
+	Q_strncpyz( clc.servername, arg, sizeof( clc.servername ) );
+
+	// read demo messages until connected
+	while ( cls.state >= CA_CONNECTED && cls.state < CA_PRIMED ) {
+		CL_ReadDemoMessage();
+	}
+	// don't get the first snapshot this frame, to prevent the gamestate
+	// load time from causing a time skip
+	clc.firstDemoFrameSkipped = qfalse;
 }
 
 
@@ -1233,8 +1538,20 @@ void CL_PacketEvent( netadr_t from, msg_t *msg ) {
 		return;		// out of order, duplicated, etc
 	}
 
+	// the header is different lengths for reliable and unreliable messages
+	const int headerBytes = msg->readcount;
+
+	// track the last message received so it can be written into demo headers
+	clc.serverMessageSequence = clc.netchan.incomingSequence;
+
 	clc.lastPacketTime = cls.realtime;
 	CL_ParseServerMessage( msg );
+
+	// we don't know if it is ok to save a demo message until
+	// after we have parsed the frame
+	if ( clc.demorecording && !clc.demowaiting ) {
+		CL_WriteDemoMessage( msg, headerBytes );
+	}
 }
 
 /*
@@ -2010,6 +2327,10 @@ void CL_Init( void ) {
 	Cmd_AddCommand ("coop_key", CL_CoopKey_f);	// coop dev: press a key by name
 	Cmd_AddCommand ("coop_mouse", CL_CoopMouse_f);	// coop dev: feed a mouse delta
 	Cmd_AddCommand ("disconnect", CL_Disconnect_f);
+	Cmd_AddCommand ("record", CL_Record_f);		// coop: demo recording (ported from codemp)
+	Cmd_AddCommand ("stoprecord", CL_StopRecord_f);
+	Cmd_AddCommand ("demo", CL_PlayDemo_f);
+	Cmd_SetCommandCompletionFunc( "demo", CL_CompleteDemoName );
 	Cmd_AddCommand ("localservers", CL_LocalServers_f);	// D2: LAN co-op discovery
 	Cmd_AddCommand ("cinematic", CL_PlayCinematic_f);
 	Cmd_SetCommandCompletionFunc( "cinematic", CL_CompleteCinematic );

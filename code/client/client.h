@@ -236,6 +236,15 @@ typedef struct {
 	clientCoopDownload_t coopdl;	// coop: pk3 transfer (wiped with the connection, survives gamestates)
 	clientCoopUpload_t coopup;		// coop: our own mods, pushed to the host
 
+	// demo record/playback (ported from codemp; SP had none)
+	char		demoName[MAX_QPATH];
+	qboolean	demorecording;
+	qboolean	demoplaying;
+	qboolean	demowaiting;			// don't record until a non-delta message is received
+	qboolean	firstDemoFrameSkipped;	// playback skips the first snapshot frame after the gamestate
+	fileHandle_t	demofile;
+	int			serverMessageSequence;	// seq of the last server packet, written into demo headers
+
 	// big stuff at end of structure so most offsets are 15 bits or less
 	netchan_t	netchan;
 } clientConnection_t;
@@ -441,6 +450,8 @@ extern int cl_connectedToCheatServer;
 
 void CL_SystemInfoChanged( void );
 void CL_ParseServerMessage( msg_t *msg );
+void CL_ReadDemoMessage( void );	// coop: demo playback pump (record/demo commands)
+void CL_StopRecord_f( void );
 
 //
 // cl_coop_transfer.cpp (coop: host -> joiner pk3 transfer)

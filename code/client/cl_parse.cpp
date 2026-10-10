@@ -256,6 +256,7 @@ void CL_ParseSnapshot( msg_t *msg ) {
 	if ( newSnap.deltaNum <= 0 ) {
 		newSnap.valid = qtrue;		// uncompressed frame
 		old = NULL;
+		clc.demowaiting = qfalse;	// demo: a full frame means recording can start
 	} else {
 		old = &cl.frames[newSnap.deltaNum & PACKET_MASK];
 		if ( !old->valid ) {
@@ -348,6 +349,11 @@ void CL_SystemInfoChanged( void ) {
 	const char		*s;
 	char			key[MAX_INFO_KEY];
 	char			value[MAX_INFO_VALUE];
+
+	// a demo's serverinfo must not stomp the local session's cvars
+	if ( clc.demoplaying ) {
+		return;
+	}
 
 	systemInfo = cl.gameState.stringData + cl.gameState.stringOffsets[ CS_SYSTEMINFO ];
 	cl.serverId = atoi( Info_ValueForKey( systemInfo, "sv_serverid" ) );
@@ -480,8 +486,11 @@ void CL_ParseGamestate( msg_t *msg ) {
 	// make sure the game starts
 	Cvar_Set( "cl_paused", "0" );
 
-	// coop: a joiner asks the host for the player-model pk3s it lacks (once per connection)
-	CL_CoopTransferHello();
+	// coop: a joiner asks the host for the player-model pk3s it lacks (once per connection).
+	// Not while playing a demo - there is no host to answer.
+	if ( !clc.demoplaying ) {
+		CL_CoopTransferHello();
+	}
 }
 
 
@@ -537,7 +546,8 @@ void CL_ParseCommandString( msg_t *msg ) {
 		while ( *cmd && *(const unsigned char *)cmd <= ' ' ) {
 			cmd++;
 		}
-		if ( !Q_strncmp( cmd, "coopdl_", 7 ) || !Q_strncmp( cmd, "coopup_", 7 ) ) {
+		if ( !clc.demoplaying	// demo playback: recorded transfer traffic is history, don't re-run it
+			&& ( !Q_strncmp( cmd, "coopdl_", 7 ) || !Q_strncmp( cmd, "coopup_", 7 ) ) ) {
 			CL_CoopTransferServerCommand( cmd );
 		}
 		// "vid" alone = the host's in-game video is over (it may have skipped it): ours ends now,
