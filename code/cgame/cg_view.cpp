@@ -1797,6 +1797,13 @@ static qboolean CG_CalcViewValues( void ) {
 
 	AnglesToAxis( cg.refdefViewAngles, cg.refdef.viewaxis );
 
+	// JACoop: eyes inside a linked portal's mouth see through it — remap
+	// the render view to the exit side until the server's transit commits
+	{
+		extern qboolean CG_CoopPortalView( vec3_t vieworg, vec3_t viewaxis[3] );
+		CG_CoopPortalView( cg.refdef.vieworg, cg.refdef.viewaxis );
+	}
+
 	if ( cg.hyperspace )
 	{
 		cg.refdef.rdflags |= RDF_NOWORLDMODEL | RDF_HYPERSPACE;

@@ -1753,6 +1753,242 @@ static void CG_CoopPortalPane( centity_t *cent, const entityState_t *s1 )
 	}
 }
 
+/*
+================
+CG_CoopPortalFrame / CG_CoopPortalTransform
+
+Client copies of the server's portal math (g_coop.cpp) — same frame
+convention so window, travel, clone, and camera all agree.
+================
+*/
+static void CG_CoopPortalFrame( const vec3_t n, vec3_t fwd, vec3_t right, vec3_t up )
+{
+	vec3_t	hint;
+	float	d;
+
+	if ( fabs( n[2] ) < 0.95f ) VectorSet( hint, 0, 0, 1 ); else VectorSet( hint, 1, 0, 0 );
+	d = DotProduct( hint, n );
+	VectorMA( hint, -d, n, up );
+	VectorNormalize( up );
+
+	VectorScale( n, -1.0f, fwd );
+	CrossProduct( up, fwd, right );
+}
+
+static void CG_CoopPortalTransform( const vec3_t nSrc, const vec3_t nDst, const vec3_t in, vec3_t out )
+{
+	vec3_t	fA, rA, uA, fB, rB, uB;
+	float	cf, cr, cu;
+
+	CG_CoopPortalFrame( nSrc, fA, rA, uA );
+	CG_CoopPortalFrame( nDst, fB, rB, uB );
+	cf = DotProduct( in, fA );
+	cr = DotProduct( in, rA );
+	cu = DotProduct( in, uA );
+	VectorScale( fB, -cf, out );
+	VectorMA( out, -cr, rB, out );
+	VectorMA( out, cu, uB, out );
+}
+
+/*
+================
+CG_CoopPortalEnds
+
+Decode a linked coop portal's pair state from its snapshot fields:
+src normal (angles[0]), dst anchor (origin2), dst normal (-eventParm).
+================
+*/
+static qboolean CG_CoopPortalEnds( const centity_t *p, vec3_t srcN, vec3_t dstOrg, vec3_t dstN )
+{
+	const entityState_t *s1 = &p->currentState;
+
+	if ( s1->eType != ET_PORTAL || s1->angles2[0] <= 0.0f || s1->angles2[1] <= 0.0f || !p->currentValid )
+	{
+		return qfalse;
+	}
+	ByteToDir( (int)s1->angles[0], srcN );
+	VectorNormalize( srcN );
+	VectorCopy( s1->origin2, dstOrg );
+	ByteToDir( s1->eventParm, dstN );
+	VectorScale( dstN, -1.0f, dstN );
+	VectorNormalize( dstN );
+	return qtrue;
+}
+
+/*
+================
+CG_CoopPortalInDisk
+
+Is a point inside the portal's oval mouth?  dnMin..dnMax is depth range
+along the normal, margin widens the ellipse.
+================
+*/
+static qboolean CG_CoopPortalInDisk( const centity_t *p, const vec3_t n, const vec3_t point,
+	float dnMin, float dnMax, float margin )
+{
+	vec3_t	rel, f, r, u;
+	float	dn;
+
+	VectorSubtract( point, p->lerpOrigin, rel );
+	dn = DotProduct( rel, n );
+	if ( dn < dnMin || dn > dnMax )
+	{
+		return qfalse;
+	}
+	CG_CoopPortalFrame( n, f, r, u );
+	return (qboolean)( fabs( DotProduct( rel, r ) ) <= COOP_PORTAL_HW + margin &&
+		fabs( DotProduct( rel, u ) ) <= COOP_PORTAL_HH + margin );
+}
+
+/*
+================
+CG_CoopPortalView
+
+Seamless crossing: while the eye sits inside a linked portal's mouth —
+before the server commits the body's transit — render from the exit
+side.  Walking in feels continuous and you can lean in, look, and back
+out.  Returns qtrue with vieworg/viewaxis remapped.
+================
+*/
+qboolean CG_CoopPortalView( vec3_t vieworg, vec3_t viewaxis[3] )
+{
+	int	i;
+
+	for ( i = 0; i < MAX_GENTITIES; i++ )
+	{
+		const centity_t	*p = &cg_entities[i];
+		vec3_t			n, dstOrg, dstN, rel, out;
+		int				k;
+
+		if ( !CG_CoopPortalEnds( p, n, dstOrg, dstN ) )
+		{
+			continue;
+		}
+		// eyes a hair past the plane out to head-contact distance —
+		// the wall stops your body, not your eyes
+		if ( !CG_CoopPortalInDisk( p, n, vieworg, -6.0f, 17.0f, 4.0f ) )
+		{
+			continue;
+		}
+		// moving away from the plane means we just exited on this side —
+		// don't bounce the view back through
+		if ( DotProduct( cg.predicted_player_state.velocity, n ) > 40.0f )
+		{
+			continue;
+		}
+		VectorSubtract( vieworg, p->lerpOrigin, rel );
+		CG_CoopPortalTransform( n, dstN, rel, out );
+		VectorAdd( dstOrg, out, vieworg );
+		for ( k = 0; k < 3; k++ )
+		{
+			CG_CoopPortalTransform( n, dstN, viewaxis[k], out );
+			VectorCopy( out, viewaxis[k] );
+		}
+		return qtrue;
+	}
+	return qfalse;
+}
+
+/*
+================
+CG_CoopPortalClone
+
+A body dwelling in a linked wall portal's mouth (the server's ~200ms
+lean-through window) also renders sliding out of the exit side — the
+straddled "half sticking out" look.  Fills the mapped clone origin and
+angles; the caller redraws the entity there.
+================
+*/
+static int	portalMouthStart[MAX_GENTITIES];
+static int	portalSeenFlags[MAX_GENTITIES];
+static int	portalTpTime[MAX_GENTITIES];
+
+static qboolean CG_CoopPortalClone( centity_t *cent, vec3_t outOrg, vec3_t outAngles )
+{
+	const int	num = cent->currentState.number;
+	int			i;
+
+	portalMouthStart[num] = 0;	// re-earned below while still in a mouth
+
+	// your own body isn't drawn in first person — and a body that just
+	// teleported is arriving, not straddling
+	if ( num == cg.snap->ps.clientNum || cent->currentState.eType == ET_PORTAL )
+	{
+		return qfalse;
+	}
+	if ( ( cent->currentState.eFlags ^ portalSeenFlags[num] ) & EF_TELEPORT_BIT )
+	{
+		portalTpTime[num] = cg.time;
+	}
+	portalSeenFlags[num] = cent->currentState.eFlags;
+	if ( cg.time - portalTpTime[num] < 700 )
+	{
+		return qfalse;
+	}
+
+	for ( i = 0; i < MAX_GENTITIES; i++ )
+	{
+		const centity_t	*p = &cg_entities[i];
+		vec3_t			n, dstOrg, dstN, c, d, radial, rel, mapped, vaF;
+		float			best = 1e9f, dn, prog;
+		int				k;
+
+		if ( !CG_CoopPortalEnds( p, n, dstOrg, dstN ) || fabs( n[2] ) >= 0.95f )
+		{
+			continue;	// wall portals only — floor/ceiling mouths commit instantly
+		}
+		// feet/middle/head sampling, same convention as the server trigger;
+		// hull extents aren't synced here so use standard humanoid heights
+		for ( k = 0; k < 3; k++ )
+		{
+			VectorCopy( cent->lerpOrigin, c );
+			c[2] += ( k == 0 ) ? 0.0f : ( k == 1 ) ? 32.0f : 56.0f;
+			VectorSubtract( c, p->lerpOrigin, d );
+			dn = DotProduct( d, n );
+			if ( dn < -8.0f || dn > 40.0f )
+			{
+				continue;
+			}
+			VectorMA( d, -dn, n, radial );
+			best = Q_min( best, VectorLength( radial ) );
+		}
+		if ( best > 50.0f )
+		{
+			continue;
+		}
+		VectorSubtract( cent->lerpOrigin, p->lerpOrigin, rel );
+		dn = DotProduct( rel, n );
+		if ( dn < -6.0f || dn > 26.0f )
+		{
+			continue;	// hull face out of mouth reach
+		}
+		// exiting, not entering — don't draw a straddle for an arriver
+		if ( cent->gent && cent->gent->client &&
+			DotProduct( cent->gent->client->ps.velocity, n ) > 40.0f )
+		{
+			continue;
+		}
+
+		if ( !portalMouthStart[num] )
+		{
+			portalMouthStart[num] = cg.time;
+		}
+		prog = Q_min( 1.0f, ( cg.time - portalMouthStart[num] ) / 200.0f );
+
+		CG_CoopPortalTransform( n, dstN, rel, mapped );
+		VectorAdd( dstOrg, mapped, outOrg );
+		// slide out of the exit wall over the dwell — hidden behind the
+		// wall first, at the commit position when the body lands
+		VectorMA( outOrg, -18.0f + prog * 22.0f, dstN, outOrg );
+		AngleVectors( cent->lerpAngles, vaF, NULL, NULL );
+		CG_CoopPortalTransform( n, dstN, vaF, vaF );
+		vectoangles( vaF, outAngles );
+		outAngles[2] = 0.0f;
+		return qtrue;
+	}
+	return qfalse;
+}
+
 static void CG_Portal( centity_t *cent ) {
 	refEntity_t			ent;
 	entityState_t		*s1;
@@ -2684,6 +2920,32 @@ Ghoul2 Insert End
 	case ET_CLOUD: // dumb
 		CG_Clouds( cent );
 		break;
+	}
+
+	// JACoop: a body dwelling in a linked wall portal's mouth is also
+	// partway out the exit — draw the emerged half over there too, so
+	// observers see it straddling the portal pair
+	{
+		vec3_t	cloneOrg, cloneAng;
+
+		if ( CG_CoopPortalClone( cent, cloneOrg, cloneAng ) )
+		{
+			vec3_t	saveO, saveA;
+
+			VectorCopy( cent->lerpOrigin, saveO );
+			VectorCopy( cent->lerpAngles, saveA );
+			VectorCopy( cloneOrg, cent->lerpOrigin );
+			VectorCopy( cloneAng, cent->lerpAngles );
+			switch ( cent->currentState.eType ) {
+			case ET_PLAYER:		CG_Player( cent );	break;
+			case ET_ITEM:		CG_Item( cent );	break;
+			case ET_GENERAL:	CG_General( cent );	break;
+			case ET_MISSILE:	CG_Missile( cent );	break;
+			default:			break;
+			}
+			VectorCopy( saveO, cent->lerpOrigin );
+			VectorCopy( saveA, cent->lerpAngles );
+		}
 	}
 }
 

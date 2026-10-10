@@ -5188,6 +5188,8 @@ static int        gravThrownN;
 static gentity_t *coopPortal[MAX_CLIENTS][2];		// [client][A=0,B=1]
 static int        coopPortalNext[MAX_CLIENTS];		// which slot `portal` fills next
 static int        coopPortalCd[MAX_GENTITIES];
+static int        coopPortalTransit[MAX_GENTITIES];	// lean-through dwell start, wall portals only
+static int        coopPortalTransitSrc[MAX_GENTITIES];	// which portal the dwell belongs to
 static int        gravHeldFx[MAX_CLIENTS];			// next swirl-effect time per holder
 
 extern void SP_fx_runner( gentity_t *ent );
@@ -5572,8 +5574,9 @@ static void G_CoopPortalPlace( gentity_t *ent, int slot )
 		return;
 	}
 	// only world geometry — a portal pinned to a door or mover is left
-	// hanging in mid-air the moment it slides
-	if ( tr.entityNum != ENTITYNUM_WORLD )
+	// hanging in mid-air the moment it slides.  World/void hits come back
+	// as ENTITYNUM_WORLD or ENTITYNUM_NONE; real entities are below that.
+	if ( tr.entityNum < ENTITYNUM_WORLD )
 	{
 		gi.SendServerCommand( cn, "print \"portal: needs a static surface — not doors or movers\n\"" );
 		return;
@@ -5996,16 +5999,16 @@ void G_CoopGravPortalFrame( void )
 			for ( int s = 0; s < 2; s++ )
 			{
 				gentity_t	*src = s ? B : A, *dst = s ? A : B;
-				vec3_t		d, radial, c;
-				float		dn, vn, best, bestDn;
+				vec3_t		d, radial, c, od;
+				float		dn, vn, best, h, boxNear;
 				int			k;
+				qboolean	wall, mouth;
 
 				// the oval is ~112 units tall; a single point test misses bodies
 				// whose origin is far from it (wall portal at eye height vs an
 				// origin near the feet).  Sample feet/middle/head — any part of
-				// the body inside the oval counts as stepping through.
+				// the body inside the oval counts as reaching the opening.
 				best = 1e9f;
-				bestDn = 0.0f;
 				for ( k = 0; k < 3; k++ )
 				{
 					VectorCopy( e->currentOrigin, c );
@@ -6018,28 +6021,53 @@ void G_CoopGravPortalFrame( void )
 						continue;
 					}
 					VectorMA( d, -dn, src->movedir, radial );
-					if ( VectorLength( radial ) < best )
-					{
-						best = VectorLength( radial );
-						bestDn = dn;
-					}
+					best = Q_min( best, VectorLength( radial ) );
 				}
 				if ( best > PORTAL_ENTER_R )
 				{
 					continue;
 				}
-				// three ways through: moving into the plane fast enough, a body
-				// part already past it, or a grounded body part inside the mouth
-				// (terrain bulges in front of the plane on convex rocks — being
-				// grounded on the disk means you're in the hole either way).
-				// Airborne bodies still need real plane contact or speed, so
-				// hopping over a floor portal doesn't yank you in mid-jump.
+				// the portal is a hole in the surface: "in the mouth" means the
+				// hull's face nearest the plane is within reach of it while some
+				// body part is inside the oval.  Convex floors lift the box off
+				// the plane, so grounded bodies get extra reach there; wall
+				// portals must actually be touched, no vacuum from steps away.
+				VectorSubtract( e->currentOrigin, src->currentOrigin, od );
+				h = fabsf( src->movedir[0] ) * e->maxs[0] +
+					fabsf( src->movedir[1] ) * e->maxs[1] +
+					fabsf( src->movedir[2] ) * ( src->movedir[2] > 0.0f ? -e->mins[2] : e->maxs[2] );
+				boxNear = DotProduct( od, src->movedir ) - h;
+				wall = (qboolean)( fabsf( src->movedir[2] ) < 0.95f );
+				mouth = (qboolean)( boxNear <= 4.0f ||
+					( !wall && e->s.groundEntityNum != ENTITYNUM_NONE && boxNear <= 24.0f ) );
 				vn = DotProduct( vel, src->movedir );
-				if ( vn > -60.0f && bestDn > -0.5f &&
-					!( e->s.groundEntityNum != ENTITYNUM_NONE && bestDn <= 24.0f ) )
+				// leaving this portal's mouth cancels a pending lean-through
+				if ( coopPortalTransit[i] && coopPortalTransitSrc[i] == src->s.number && !mouth )
+				{
+					coopPortalTransit[i] = 0;
+				}
+				if ( !mouth && vn > -60.0f )
 				{
 					continue;
 				}
+				// wall portals dwell ~200ms before the commit — long enough to
+				// lean through (the client renders from the far side the moment
+				// your eyes are in the disk) and pull back out, too short to
+				// feel like a hitch when walking in.  Floor holes and fast
+				// approaches commit instantly.
+				if ( wall && mouth && vn > -60.0f )
+				{
+					if ( !coopPortalTransit[i] || coopPortalTransitSrc[i] != src->s.number )
+					{
+						coopPortalTransit[i] = level.time;
+						coopPortalTransitSrc[i] = src->s.number;
+					}
+					if ( level.time - coopPortalTransit[i] < 200 )
+					{
+						continue;
+					}
+				}
+				coopPortalTransit[i] = 0;
 				G_CoopPortalTravel( e, src, dst, vel );
 				break;
 			}
@@ -6063,5 +6091,7 @@ void G_CoopGravPortalInit( void )
 	memset( coopPortal, 0, sizeof( coopPortal ) );
 	memset( coopPortalNext, 0, sizeof( coopPortalNext ) );
 	memset( coopPortalCd, 0, sizeof( coopPortalCd ) );
+	memset( coopPortalTransit, 0, sizeof( coopPortalTransit ) );
+	memset( coopPortalTransitSrc, 0, sizeof( coopPortalTransitSrc ) );
 	memset( gravHeldFx, 0, sizeof( gravHeldFx ) );
 }
