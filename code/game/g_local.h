@@ -449,6 +449,9 @@ void	G_CoopSimonCommand( gentity_t *ent );	// coop: simonsays — Galactic Battl
 void	G_CoopWaveFrame( void );				// coop: endless wave mode (g_coopWaves)
 void	G_CoopBotCommand( gentity_t *ent );		// coop_bot [type|remove]: summon/dismiss an AI companion
 void	G_CoopBotFrame( void );					// coop: companion top-up + leader reassignment (g_coopBots)
+gentity_t *G_CoopBeastController( const gentity_t *beast );	// coop: the client driving this NPC, or NULL
+void	G_CoopBeastCommand( gentity_t *ent );	// coop_become <type|release>: possess a creature
+void	G_CoopBeastFrame( void );				// coop: beast anim/bite driving + stale possession cleanup
 void	G_CoopHolocronSpawn( void );			// coop: scatter holocrons (g_coopHolocrons)
 void	G_CoopHoloPicked( int cn );				// coop: holocron pickup -> set-completion reward
 void	G_CoopSharePickup( const gentity_t *item, gentity_t *toucher );	// coop: g_coopPickupShare

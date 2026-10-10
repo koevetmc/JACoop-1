@@ -2434,7 +2434,8 @@ void NPC_Think ( gentity_t *self)//, int msec )
 			}
 		}
 	}
-	if ( player->client->ps.viewEntity == self->s.number )
+	if ( player->client->ps.viewEntity == self->s.number
+		|| G_CoopBeastController( self ) )	// coop: a joiner driving a beast counts too
 	{//being controlled by player
 		if ( self->client )
 		{//make the noises

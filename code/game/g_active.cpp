@@ -4941,11 +4941,13 @@ extern cvar_t	*g_skippingcin;
 		{
 			G_UpdateEmplacedWeaponData( ent );
 		}
-		if ( player && player->client && player->client->ps.viewEntity == ent->s.number )
+		gentity_t *ctrl = ( player && player->client && player->client->ps.viewEntity == ent->s.number )
+			? player : G_CoopBeastController( ent );	// coop: a joiner may be the driver
+		if ( ctrl )
 		{
 			controlledByPlayer = qtrue;
 			int sav_weapon = ucmd->weapon;
-			memcpy( ucmd, &player->client->usercmd, sizeof( usercmd_t ) );
+			memcpy( ucmd, &ctrl->client->usercmd, sizeof( usercmd_t ) );
 			ucmd->weapon = sav_weapon;
 			ent->client->usercmd = *ucmd;
 		}

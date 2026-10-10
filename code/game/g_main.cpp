@@ -2227,6 +2227,7 @@ void G_RunFrame( int levelTime ) {
 	G_CoopSupporterFrame();	// coop: refresh the CS_PLAYERS supporter flag when the site answers
 	G_CoopWaveFrame();		// coop: endless waves when g_coopWaves is on
 	G_CoopBotFrame();		// coop: companion allies when g_coopBots is on
+	G_CoopBeastFrame();		// coop: possessed-beast driving (coop_become)
 	{
 		extern void G_CoopPhysicsFrame( void );
 		G_CoopPhysicsFrame();	// coop: g_mpPhysics -> bg_mpPhysics + CS_COOP_PHYSICS

@@ -1471,6 +1471,11 @@ void ClientCommand( int clientNum ) {
 		G_CoopBotCommand( ent );	// coop: summon/dismiss an AI companion (g_coopBots)
 		return;
 	}
+	if (Q_stricmp (cmd, "coop_become") == 0)
+	{
+		G_CoopBeastCommand( ent );	// coop: possess a creature (sandworm/rancor/wampa)
+		return;
+	}
 	if (Q_stricmp (cmd, "coop_qchat") == 0)
 	{
 		G_CoopQChatCommand( ent );	// coop: preset chat line, bindable

@@ -3372,6 +3372,281 @@ void G_CoopBotFrame( void )
 
 /*
 ==============================================================================
+Playable beasts (coop_become <type>)
+
+Possession rides ps.viewEntity - the same channel the stock "control" cheat
+and level-4 mind trick use, generalized past player 0 so joiners can drive
+too. "coop_become sandworm" takes over the map's own sand creature when one
+is out, else drops one in front of the caller; rancor and wampa always
+spawn fresh. Attack bites everything in a frontal arc; jump is the stock
+possession exit, "coop_become release" works too. A coop-spawned beast is
+tagged "coopbeast" and freed when its driver lets go or leaves.
+==============================================================================
+*/
+static const struct { const char *name; const char *npcType; } coopBeastTypes[] = {
+	{ "sandworm",		"sand_creature" },
+	{ "sand_creature",	"sand_creature" },
+	{ "rancor",			"rancor" },
+	{ "wampa",			"wampa" },
+};
+#define COOP_BEAST_TYPES	( sizeof( coopBeastTypes ) / sizeof( coopBeastTypes[0] ) )
+
+extern void NPC_SetAnim( gentity_t *ent, int setAnimParts, int anim, int setAnimFlags, int iBlend );
+extern void G_SetViewEntity( gentity_t *self, gentity_t *viewEntity );
+extern qboolean G_ClearViewEntity( gentity_t *ent );
+
+// the player currently driving this NPC through viewEntity, or NULL - the
+// stock checks only ask player 0, joiners needed this scan
+gentity_t *G_CoopBeastController( const gentity_t *beast )
+{
+	int	i;
+	for ( i = 0; i < MAX_CLIENTS; i++ )
+	{
+		gentity_t *e = &g_entities[i];
+		if ( e->inuse && e->client && e->client->pers.connected == CON_CONNECTED
+			&& e->client->ps.viewEntity == beast->s.number )
+		{
+			return e;
+		}
+	}
+	return NULL;
+}
+
+// drop a beast NPC near the caller (same spot math as the bot spawn)
+static gentity_t *G_CoopSpawnBeast( gentity_t *owner, const char *npcType )
+{
+	static int	seq = 0;
+	char		tag[32];
+	gentity_t	*spawner, *beast = NULL;
+	vec3_t		forward, end;
+	trace_t		tr;
+	int			i;
+
+	spawner = G_Spawn();
+	if ( !spawner )
+	{
+		return NULL;
+	}
+	spawner->e_ThinkFunc = thinkF_G_FreeEntity;
+	spawner->nextthink = level.time + FRAMETIME;
+
+	AngleVectors( owner->client->ps.viewangles, forward, NULL, NULL );
+	VectorNormalize( forward );
+	VectorMA( owner->currentOrigin, 160, forward, end );
+	gi.trace( &tr, owner->currentOrigin, NULL, NULL, end, 0, MASK_SOLID, (EG2_Collision)0, 0 );
+	VectorCopy( tr.endpos, end );
+	end[2] -= 48;
+	gi.trace( &tr, tr.endpos, NULL, NULL, end, 0, MASK_SOLID, (EG2_Collision)0, 0 );
+	VectorCopy( tr.endpos, end );
+	end[2] += 48;
+	G_SetOrigin( spawner, end );
+	VectorCopy( spawner->currentOrigin, spawner->s.origin );
+	gi.linkentity( spawner );
+
+	Com_sprintf( tag, sizeof( tag ), "coopbeast_new%d", seq++ );
+	spawner->NPC_type = G_NewString( npcType );
+	spawner->NPC_targetname = G_NewString( tag );
+	spawner->count = 1;
+	spawner->delay = 0;
+	spawner->wait = 500;
+	NPC_PrecacheByClassName( spawner->NPC_type );
+	NPC_Spawn( spawner, spawner, spawner );
+
+	for ( i = 0; i < globals.num_entities; i++ )
+	{
+		gentity_t *e = &g_entities[i];
+		if ( e->inuse && e->NPC && e->client && e->targetname && !Q_stricmp( e->targetname, tag ) )
+		{
+			beast = e;
+			break;
+		}
+	}
+	if ( !beast )
+	{
+		return NULL;
+	}
+	beast->targetname = (char *)"coopbeast";	// freed when released
+	beast->client->playerTeam = TEAM_ENEMY;	// hunts the players, allied with the map
+	return beast;
+}
+
+// the caller's possessed beast, if they are driving one
+static gentity_t *G_CoopMyBeast( const gentity_t *ent )
+{
+	if ( !ent->client || ent->client->ps.viewEntity <= 0
+		|| ent->client->ps.viewEntity >= ENTITYNUM_WORLD )
+	{
+		return NULL;
+	}
+	gentity_t *beast = &g_entities[ent->client->ps.viewEntity];
+	return ( beast->inuse && beast->NPC ) ? beast : NULL;
+}
+
+void G_CoopBeastCommand( gentity_t *ent )
+{
+	const char	*arg = gi.argv( 1 );
+	gentity_t	*beast;
+	int			i;
+
+	if ( !G_CoopIsPlayer( ent ) )
+	{
+		return;
+	}
+	if ( !arg[0] || !Q_stricmp( arg, "release" ) || !Q_stricmp( arg, "off" ) )
+	{
+		if ( G_CoopMyBeast( ent ) || ent->client->ps.viewEntity > 0 )
+		{
+			G_ClearViewEntity( ent );
+			G_CoopPrintTr( ent->s.number, "print", "Tu reprends ton corps.\n",
+				"Back in your own body.\n" );
+		}
+		else
+		{
+			G_CoopPrintTr( ent->s.number, "print", "coop_become sandworm|rancor|wampa - coop_become release pour lacher.\n",
+				"coop_become sandworm|rancor|wampa - coop_become release to let go.\n" );
+		}
+		return;
+	}
+	if ( G_CoopMyBeast( ent ) )
+	{
+		G_CoopPrintTr( ent->s.number, "print", "Tu controles deja une bete (coop_become release).\n",
+			"Already driving a beast (coop_become release).\n" );
+		return;
+	}
+	if ( ent->health <= 0 || G_CoopIsDowned( ent ) )
+	{
+		return;
+	}
+
+	const char	*npcType = NULL;
+	for ( i = 0; i < (int)COOP_BEAST_TYPES; i++ )
+	{
+		if ( !Q_stricmp( arg, coopBeastTypes[i].name ) )
+		{
+			npcType = coopBeastTypes[i].npcType;
+			break;
+		}
+	}
+	if ( !npcType )
+	{
+		G_CoopPrintTr( ent->s.number, "print", "Bete inconnue '%s' - sandworm, rancor, wampa.\n",
+			"Unknown beast '%s' - sandworm, rancor, wampa.\n", arg );
+		return;
+	}
+
+	// a sandworm call takes over the map's own free sand creature first -
+	// it's already out there hunting, no need to spawn a second
+	beast = NULL;
+	if ( !Q_stricmp( npcType, "sand_creature" ) )
+	{
+		for ( i = 0; i < globals.num_entities && !beast; i++ )
+		{
+			gentity_t *e = &g_entities[i];
+			if ( e->inuse && e->NPC && e->client && e->health > 0
+				&& e->client->NPC_class == CLASS_SAND_CREATURE
+				&& !G_CoopBeastController( e ) )
+			{
+				beast = e;
+			}
+		}
+	}
+	if ( !beast )
+	{
+		beast = G_CoopSpawnBeast( ent, npcType );
+	}
+	if ( !beast )
+	{
+		return;
+	}
+	beast->NPC->behaviorState = beast->NPC->defaultBehavior = BS_CINEMATIC;	// no brain - the driver is the brain
+	G_SetViewEntity( ent, beast );
+	G_CoopPrintTr( -1, "print", "^3%s^7 incarne un %s !\n",
+		"^3%s^7 becomes a %s!\n", ent->client->pers.netname, arg );
+}
+
+void G_CoopBeastFrame( void )
+{
+	int	i;
+
+	for ( i = 0; i < MAX_CLIENTS; i++ )
+	{
+		gentity_t *ent = &g_entities[i];
+		if ( !ent->inuse || !ent->client || ent->client->pers.connected != CON_CONNECTED
+			|| ent->client->ps.viewEntity <= 0 || ent->client->ps.viewEntity >= ENTITYNUM_WORLD )
+		{
+			continue;
+		}
+		gentity_t *beast = &g_entities[ent->client->ps.viewEntity];
+		if ( !beast->inuse || !beast->NPC || beast->health <= 0 )
+		{//the beast died or was freed - hand the body back
+			G_ClearViewEntity( ent );
+			continue;
+		}
+
+		if ( beast->client->NPC_class != CLASS_SAND_CREATURE )
+		{
+			continue;	// walkers get their anims from pmove like stock
+		}
+
+		// the worm has no pmove-driven anims - drive them off the forwarded
+		// usercmd ourselves: bite on attack, slither while moving
+		const usercmd_t	*cmd = &beast->client->usercmd;
+		if ( ( cmd->buttons & BUTTON_ATTACK ) && TIMER_Done( beast, "coopbite" ) )
+		{
+			NPC_SetAnim( beast, SETANIM_LEGS, Q_irand( BOTH_ATTACK1, BOTH_ATTACK2 ),
+				SETANIM_FLAG_OVERRIDE | SETANIM_FLAG_HOLD | SETANIM_FLAG_RESTART );
+			TIMER_Set( beast, "coopbite", beast->client->ps.legsAnimTimer );
+			TIMER_Set( beast, "coopbitehit", beast->client->ps.legsAnimTimer / 2 );
+		}
+		if ( !TIMER_Done( beast, "coopbite" ) )
+		{//mid-attack: the lunge lands once, partway through the anim
+			if ( TIMER_Done( beast, "coopbitehit" ) )
+			{
+				vec3_t		fwd, maw;
+				trace_t		tr;
+				AngleVectors( beast->client->ps.viewangles, fwd, NULL, NULL );
+				VectorMA( beast->currentOrigin, 140, fwd, maw );
+				gi.trace( &tr, beast->currentOrigin, beast->mins, beast->maxs, maw, beast->s.number, MASK_SOLID, (EG2_Collision)0, 0 );
+				G_RadiusDamage( tr.endpos, beast, 2000, 160, beast, MOD_UNKNOWN );
+				TIMER_Set( beast, "coopbitehit", beast->client->ps.legsAnimTimer );
+			}
+		}
+		else if ( VectorLengthSquared( beast->client->ps.velocity ) > 30.0f * 30.0f )
+			{
+				if ( beast->client->ps.legsAnim != BOTH_WALK2 )
+				{
+					NPC_SetAnim( beast, SETANIM_LEGS, BOTH_WALK2,
+						SETANIM_FLAG_OVERRIDE | SETANIM_FLAG_HOLD | SETANIM_FLAG_RESTART );
+				}
+				if ( TIMER_Done( beast, "coopslither" ) )
+				{
+					vec3_t	up = { 0, 0, 1 };
+					G_PlayEffect( G_EffectIndex( "env/sand_move" ), beast->currentOrigin, up );
+					TIMER_Set( beast, "coopslither", 300 );
+				}
+			}
+			else if ( beast->client->ps.legsAnim != BOTH_STAND1 )
+			{
+				NPC_SetAnim( beast, SETANIM_LEGS, BOTH_STAND1,
+					SETANIM_FLAG_OVERRIDE | SETANIM_FLAG_HOLD | SETANIM_FLAG_RESTART );
+			}
+	}
+
+	// a coop-spawned beast nobody drives anymore goes away - the map's own
+	// creatures keep their AI and stay
+	for ( i = 0; i < globals.num_entities; i++ )
+	{
+		gentity_t *e = &g_entities[i];
+		if ( e->inuse && e->NPC && e->targetname && !Q_stricmp( e->targetname, "coopbeast" )
+			&& !G_CoopBeastController( e ) )
+		{
+			G_FreeEntity( e );
+		}
+	}
+}
+
+/*
+==============================================================================
 Catch-up teleport ("coop_cometome" client command)
 
 Drops the caller beside its nearest living teammate, the same spot-finding
