@@ -571,6 +571,9 @@ extern	vmCvar_t		cg_coopScore;		// coop: persistent mini scoreboard; +coop_score
 extern	vmCvar_t		cg_coopTags;		// coop: 1 = name + health over living teammates
 extern	vmCvar_t		cg_coopStatus;		// coop: 1 = right-edge team status panel
 extern	vmCvar_t		cg_coopVoiceTalk;	// coop voice: talker bitmask + TX flag (written by the engine)
+extern	vmCvar_t		cg_demoRec;			// coop: 1 while the engine records a demo (engine-written)
+extern	vmCvar_t		cg_demoPlaying;		// coop: 1 while a demo plays back
+extern	vmCvar_t		cg_demoName;		// coop: file name of the recording/playing demo
 extern	vmCvar_t		cg_chatBox;			// coop: ms to keep each chat line on screen (0 = off)
 extern	vmCvar_t		cg_chatBoxHeight;	// coop: bottom Y of the chat box stack
 // coop: the local player's playerState for HUD/view reads: the gentity's on the host,
@@ -606,6 +609,7 @@ void CG_CoopPing_f( void );		// coop: "ping" svcmd, a teammate's waypoint marker
 void CG_CoopDrawPings( void );	// coop: draw the live waypoint pings
 void CG_CoopStats_f( void );	// coop: "cstat" svcmd, a scoreboard row
 void CG_CoopDrawScoreboard( void );	// coop: the +coop_score overlay
+void CG_CoopDrawRecording( void );	// coop: bottom-right REC/DEMO indicator
 void CG_ChatBox_AddString( char *chatStr );	// coop: queue a line for the on-screen chat box
 void CG_ChatBox_DrawStrings( void );		// coop: draw active chat lines
 void CG_CoopReset( void );

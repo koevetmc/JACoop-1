@@ -4555,6 +4555,7 @@ static void CG_Draw2D( void )
 		CG_CoopDrawPings();		// coop: teammate waypoint pings
 		CG_CoopDrawNametags();	// coop: name + health over living teammates
 		CG_CoopDrawTeamStatus();	// coop: right-edge roster (health, shield, force, objective)
+		CG_CoopDrawRecording();	// coop: bottom-right REC/DEMO indicator
 		if ( cg_coopScore.integer )
 		{
 			CG_CoopDrawScoreboard();	// coop: +coop_score held

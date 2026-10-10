@@ -272,6 +272,9 @@ vmCvar_t	cg_coopScore;			// coop: 1 while +coop_score is held (scoreboard)
 vmCvar_t	cg_coopTags;			// coop: 1 = name + health bar over living teammates
 vmCvar_t	cg_coopStatus;			// coop: 1 = right-edge team status panel (health, shield, force)
 vmCvar_t	cg_coopVoiceTalk;		// coop voice: talker bitmask + TX flag (engine-written)
+vmCvar_t	cg_demoRec;				// coop: 1 while the engine records a demo (HUD indicator)
+vmCvar_t	cg_demoPlaying;			// coop: 1 while a demo plays back
+vmCvar_t	cg_demoName;			// coop: file name of the recording/playing demo
 vmCvar_t	cg_chatBox;				// coop: chat line lifetime in ms (0 = hide box)
 vmCvar_t	cg_chatBoxHeight;		// coop: bottom Y of the chat stack
 vmCvar_t	cg_renderToTextureFX;
@@ -495,6 +498,9 @@ static cvarTable_t cvarTable[] = {
 	{ &cg_coopTags, "cg_coopTags", "1", CVAR_ARCHIVE },	// coop: name + health bar over living teammates
 	{ &cg_coopStatus, "cg_coopStatus", "1", CVAR_ARCHIVE },	// coop: right-edge team status panel
 	{ &cg_coopVoiceTalk, "cg_coopVoiceTalk", "0", CVAR_TEMP },	// coop voice: who is talking + local TX
+	{ &cg_demoRec, "cl_demorecording", "0", CVAR_ROM },	// coop: engine sets this in record/stoprecord
+	{ &cg_demoPlaying, "cl_demoplaying", "0", CVAR_ROM },	// coop: engine sets this in demo/disconnect
+	{ &cg_demoName, "cl_demoName", "", CVAR_ROM },
 	// coop: on-screen chat box (same defaults as multiplayer)
 	{ &cg_chatBox, "cg_chatBox", "10000", CVAR_ARCHIVE },
 	{ &cg_chatBoxHeight, "cg_chatBoxHeight", "350", CVAR_ARCHIVE },

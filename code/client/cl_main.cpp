@@ -283,6 +283,8 @@ void CL_Disconnect( void ) {
 		FS_FCloseFile( clc.demofile );
 		clc.demofile = 0;
 	}
+	Cvar_Set( "cl_demorecording", "0" );
+	Cvar_Set( "cl_demoplaying", "0" );
 
 	CL_CoopTransferAbort();	// coop: drop a partial download, unload the host's packs (clc is wiped below)
 
@@ -567,6 +569,7 @@ void CL_StopRecord_f( void ) {
 	FS_FCloseFile( clc.demofile );
 	clc.demofile = 0;
 	clc.demorecording = qfalse;
+	Cvar_Set( "cl_demorecording", "0" );	// cgame's REC indicator reads this
 	Com_Printf ("Stopped demo.\n");
 }
 
@@ -638,6 +641,9 @@ void CL_Record_f( void ) {
 	}
 	clc.demorecording = qtrue;
 	Q_strncpyz( clc.demoName, demoName, sizeof( clc.demoName ) );
+	// cgame reads these two to draw the REC indicator
+	Cvar_Set( "cl_demorecording", "1" );
+	Cvar_Set( "cl_demoName", demoName );
 
 	// don't start saving messages until a non-delta compressed message is received
 	clc.demowaiting = qtrue;
@@ -797,6 +803,8 @@ void CL_PlayDemo_f( void ) {
 	cls.state = CA_CONNECTED;
 	clc.demoplaying = qtrue;
 	Q_strncpyz( clc.servername, arg, sizeof( clc.servername ) );
+	Cvar_Set( "cl_demoplaying", "1" );
+	Cvar_Set( "cl_demoName", arg );
 
 	// read demo messages until connected
 	while ( cls.state >= CA_CONNECTED && cls.state < CA_PRIMED ) {

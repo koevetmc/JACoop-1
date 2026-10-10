@@ -3297,3 +3297,54 @@ void CG_CoopDrawScoreboard( void )
 	}
 	cgi_R_SetAspect2D( 1 );
 }
+
+/*
+==================
+CG_CoopDrawRecording
+
+Bottom-right REC / DEMO indicator. The engine mirrors its demo state into
+cl_demorecording / cl_demoplaying / cl_demoName; recording shows a blinking
+dot, the file name and elapsed time, playback just the name.
+==================
+*/
+void CG_CoopDrawRecording( void )
+{
+	static int	recStart = 0;
+	static int	wasRec = 0;
+	const int	small = cgs.media.qhFontSmall;
+	const char	*name = cg_demoName.string[0] ? cg_demoName.string : "demo";
+	char		label[96];
+
+	if ( cg_demoRec.integer )
+	{
+		if ( !wasRec )
+		{
+			wasRec = 1;
+			recStart = cg.time;
+		}
+		const int	secs = ( cg.time - recStart ) / 1000;
+		Com_sprintf( label, sizeof( label ), "REC %s %d:%02d", name, secs / 60, secs % 60 );
+	}
+	else
+	{
+		wasRec = 0;
+		if ( !cg_demoPlaying.integer )
+		{
+			return;
+		}
+		Com_sprintf( label, sizeof( label ), "DEMO %s", name );
+	}
+
+	cgi_R_SetAspect2D( 0 );
+	const vec4_t	col = { 1.0f, 0.3f, 0.3f, 0.9f };
+	const int		w = cgi_R_Font_StrLenPixels( label, small, 0.7f );
+	const int		x = 628 - w - 8;
+	const int		y = 468;
+	if ( cg_demoRec.integer && ( ( cg.time / 400 ) & 1 ) )
+	{	// blinking record dot
+		static const vec4_t	dot = { 1.0f, 0.15f, 0.15f, 1.0f };
+		CG_FillRect( x - 10, y + 3, 6, 6, dot );
+	}
+	cgi_R_Font_DrawString( x, y, label, col, small, -1, 0.7f );
+	cgi_R_SetAspect2D( 1 );
+}
