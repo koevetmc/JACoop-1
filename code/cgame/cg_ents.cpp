@@ -1576,6 +1576,102 @@ void CG_Line( vec3_t start, vec3_t end, vec3_t color, float alpha )
 CG_Portal
 ===============
 */
+/*
+======================
+CG_CoopPortalPane
+
+JACoop portal-gun visuals: an elliptical pane (coop_portal_win, sort portal —
+the renderer turns it into a live view of the exit portal once the pair links)
+inside a glowing annular rim, all from the entity's synced normal.
+
+cent->lerpOrigin sits 2u off the wall; the pane hugs it.
+======================
+*/
+#define COOP_PORTAL_HW	34.0f	// oval half-width
+#define COOP_PORTAL_HH	56.0f	// oval half-height
+#define COOP_PORTAL_SEG	20
+static void CG_CoopPortalPane( centity_t *cent, const entityState_t *s1 )
+{
+	static qhandle_t	winShader = 0, rimShader = 0;
+	polyVert_t			verts[COOP_PORTAL_SEG + 2];
+	vec3_t				n, up, right, center, hint;
+	float				d;
+	int					i;
+	const int			slot = (int)( s1->angles2[0] ) - 1;	// 0 = A blue, 1 = B orange
+	const qboolean		linked = (qboolean)( s1->angles2[1] > 0.0f );
+	const byte			rimR = slot ? 255 : 60, rimG = slot ? 140 : 150, rimB = slot ? 30 : 255;
+
+	if ( !winShader )
+	{
+		winShader = cgi_R_RegisterShader( "coop_portal_win" );
+		rimShader = cgi_R_RegisterShader( "coop_portal_rim" );
+	}
+
+	ByteToDir( (int)s1->angles[0], n );
+	VectorNormalize( n );
+	VectorCopy( cent->lerpOrigin, center );
+	VectorMA( center, 0.5f, n, center );	// hug the wall, off the surface paint
+
+	// oval "up": world-up in the plane for walls, a fixed tangent for floors
+	if ( fabs( n[2] ) < 0.95f ) VectorSet( hint, 0, 0, 1 ); else VectorSet( hint, 1, 0, 0 );
+	d = DotProduct( hint, n );
+	VectorMA( hint, -d, n, up );
+	VectorNormalize( up );
+	CrossProduct( up, n, right );		// right x up = n: CCW winding faces +n
+
+	if ( linked )
+	{
+		// the see-through pane: center + ring fan, dim tinted so the remote
+		// view renders through it
+		memset( verts, 0, sizeof( verts ) );
+		VectorCopy( center, verts[0].xyz );
+		verts[0].st[0] = 0.5f; verts[0].st[1] = 0.5f;
+		verts[0].modulate[0] = slot ? 40 : 15;
+		verts[0].modulate[1] = slot ? 25 : 20;
+		verts[0].modulate[2] = slot ? 15 : 45;
+		verts[0].modulate[3] = 255;
+		for ( i = 0; i < COOP_PORTAL_SEG; i++ )
+		{
+			const float a = (float)i / COOP_PORTAL_SEG * 2.0f * (float)M_PI;
+			VectorMA( center, cos( a ) * COOP_PORTAL_HW, right, verts[i + 1].xyz );
+			VectorMA( verts[i + 1].xyz, sin( a ) * COOP_PORTAL_HH, up, verts[i + 1].xyz );
+			verts[i + 1].st[0] = 0.5f + cos( a ) * 0.5f;
+			verts[i + 1].st[1] = 0.5f + sin( a ) * 0.5f;
+			memcpy( verts[i + 1].modulate, verts[0].modulate, 4 );
+		}
+		verts[COOP_PORTAL_SEG + 1] = verts[1];
+		cgi_R_AddPolyToScene( winShader, COOP_PORTAL_SEG + 2, verts );
+	}
+
+	// glowing rim: annulus quads just outside the pane
+	for ( i = 0; i < 16; i++ )
+	{
+		const float	a0 = (float)i / 16 * 2.0f * (float)M_PI;
+		const float	a1 = (float)( i + 1 ) / 16 * 2.0f * (float)M_PI;
+		const float	oW = COOP_PORTAL_HW + 7.0f, oH = COOP_PORTAL_HH + 7.0f;
+		polyVert_t	q[4];
+		int			k;
+
+		memset( q, 0, sizeof( q ) );
+		for ( k = 0; k < 4; k++ )
+		{
+			const float	aa = ( k == 0 || k == 3 ) ? a0 : a1;
+			const float	rw = ( k < 2 ) ? oW : COOP_PORTAL_HW;
+			const float	rh = ( k < 2 ) ? oH : COOP_PORTAL_HH;
+
+			VectorMA( center, cos( aa ) * rw, right, q[k].xyz );
+			VectorMA( q[k].xyz, sin( aa ) * rh, up, q[k].xyz );
+			q[k].st[0] = 0.5f + cos( aa ) * 0.5f * ( k < 2 ? 1.15f : 1.0f );
+			q[k].st[1] = 0.5f + sin( aa ) * 0.5f * ( k < 2 ? 1.15f : 1.0f );
+			q[k].modulate[0] = rimR;
+			q[k].modulate[1] = rimG;
+			q[k].modulate[2] = rimB;
+			q[k].modulate[3] = 255;
+		}
+		cgi_R_AddPolyToScene( rimShader, 4, q );
+	}
+}
+
 static void CG_Portal( centity_t *cent ) {
 	refEntity_t			ent;
 	entityState_t		*s1;
@@ -1614,6 +1710,12 @@ Ghoul2 Insert End
 
 	// add to refresh list
 	cgi_R_AddRefEntityToScene(&ent);
+
+	// JACoop: our portals carry a color slot in angles2[0]
+	if ( s1->angles2[0] > 0.0f )
+	{
+		CG_CoopPortalPane( cent, s1 );
+	}
 }
 
 

@@ -5399,6 +5399,154 @@ void G_CoopGravGunCommand( gentity_t *ent, qboolean dropOnly )
 
 /*
 ================
+G_CoopPortalFrame
+
+Portal-local basis: fwd = into the portal, up = world-up projected into the
+plane (a fixed world tangent for floors/ceilings so pairs stay consistent),
+right = up x fwd keeping (fwd,right,up) right-handed.  This is the same frame
+convention the renderer's portal-view path ends up using after the roll fixup,
+so the window image and the travel transform always agree.
+================
+*/
+static void G_CoopPortalFrame( const vec3_t n, vec3_t fwd, vec3_t right, vec3_t up )
+{
+	vec3_t	hint;
+	float	d;
+
+	if ( fabs( n[2] ) < 0.95f ) VectorSet( hint, 0, 0, 1 ); else VectorSet( hint, 1, 0, 0 );
+	d = DotProduct( hint, n );
+	VectorMA( hint, -d, n, up );
+	VectorNormalize( up );
+
+	VectorScale( n, -1.0f, fwd );
+	CrossProduct( up, fwd, right );
+}
+
+/*
+================
+G_CoopPortalTransform
+
+Map a vector through the portal pair: express in the source portal's frame,
+flip the into/right components (the 180-degree turn about portal-up that sends
+"going in" to "coming out"), express out in the destination frame.
+================
+*/
+static void G_CoopPortalTransform( const vec3_t nSrc, const vec3_t nDst, const vec3_t in, vec3_t out )
+{
+	vec3_t	fA, rA, uA, fB, rB, uB;
+	float	cf, cr, cu;
+
+	G_CoopPortalFrame( nSrc, fA, rA, uA );
+	G_CoopPortalFrame( nDst, fB, rB, uB );
+	cf = DotProduct( in, fA );
+	cr = DotProduct( in, rA );
+	cu = DotProduct( in, uA );
+	VectorScale( fB, -cf, out );
+	VectorMA( out, -cr, rB, out );
+	VectorMA( out, cu, uB, out );
+}
+
+/*
+================
+G_CoopPortalRoll
+
+Roll the remote camera needs about its -nB axis so the rendered window shows
+exactly the G_CoopPortalTransform view.  The renderer builds the camera frame
+as (-nB, PerpendicularVector(nB), ...); we rotate that frame's axis[1] onto
+M_des(PV(nA)) — the image of the window surface's own tangent.
+================
+*/
+static float G_CoopPortalRoll( const vec3_t nA, const vec3_t nB )
+{
+	vec3_t	fA, rA, uA, fB, rB, uB, pvA, pvB, want, axis, cross;
+	float	cf, cr, cu;
+
+	G_CoopPortalFrame( nA, fA, rA, uA );
+	G_CoopPortalFrame( nB, fB, rB, uB );
+	PerpendicularVector( pvA, nA );
+	PerpendicularVector( pvB, nB );
+
+	cf = DotProduct( pvA, fA );
+	cr = DotProduct( pvA, rA );
+	cu = DotProduct( pvA, uA );
+	VectorScale( fB, -cf, want );
+	VectorMA( want, -cr, rB, want );
+	VectorMA( want, cu, uB, want );
+
+	VectorScale( nB, -1.0f, axis );
+	CrossProduct( pvB, want, cross );
+	return (float)( atan2( DotProduct( cross, axis ), DotProduct( pvB, want ) ) * ( 180.0 / M_PI ) );
+}
+
+/*
+================
+G_CoopPortalFx
+
+Marker glow for an unlinked portal; freed once the pair links and the pane
+becomes a real see-through window.
+================
+*/
+static void G_CoopPortalFx( gentity_t *p, int slot, qboolean want )
+{
+	if ( p->owner && p->owner->inuse )
+	{
+		G_FreeEntity( p->owner );
+	}
+	p->owner = NULL;
+	if ( !want )
+	{
+		return;
+	}
+	gentity_t *fx = G_Spawn();
+	fx->fxFile = (char *)( slot == 0 ? "mp/bluecrystalrespawn" : "mp/redcrystalrespawn" );
+	fx->classname = "coop_portalfx";
+	VectorMA( p->s.pos.trBase, 4.0f, p->movedir, fx->s.origin );
+	VectorCopy( fx->s.origin, fx->currentOrigin );
+	SP_fx_runner( fx );
+	p->owner = fx;
+}
+
+/*
+================
+G_CoopPortalRelink
+
+Re-resolve both portals of a pair after placement/removal: linked portals sync
+their ET_PORTAL snapshot state (origin2 = remote camera anchor, eventParm =
+remote camera dir, clientNum = camera roll) so the client renders a real
+destination view; unlinked ones fall back to marker glow.
+================
+*/
+static void G_CoopPortalRelink( int cn )
+{
+	for ( int s = 0; s < 2; s++ )
+	{
+		gentity_t *p = coopPortal[cn][s];
+		gentity_t *twin = coopPortal[cn][s ^ 1];
+		if ( !p || !p->inuse )
+		{
+			continue;
+		}
+		const qboolean linked = (qboolean)( twin && twin->inuse );
+		p->s.angles2[1] = linked ? 1.0f : 0.0f;
+		if ( linked )
+		{
+			VectorCopy( twin->s.pos.trBase, p->s.origin2 );
+			p->s.eventParm = DirToByte( twin->movedir );
+			p->s.clientNum = (int)( G_CoopPortalRoll( p->movedir, twin->movedir ) * 256.0f / 360.0f );
+			G_CoopPortalFx( p, s, qfalse );
+		}
+		else
+		{
+			VectorCopy( p->s.pos.trBase, p->s.origin2 );
+			p->s.eventParm = DirToByte( p->movedir );
+			p->s.clientNum = 0;
+			G_CoopPortalFx( p, s, qtrue );
+		}
+	}
+}
+
+/*
+================
 G_CoopPortalPlace
 
 Spawn (or respawn) a portal marker + its fx buddy on the aimed-at surface.
@@ -5443,18 +5591,15 @@ static void G_CoopPortalPlace( gentity_t *ent, int slot )
 	G_SetOrigin( p, org );
 	p->contents = 0;
 	p->clipmask = 0;
+	p->svFlags |= SVF_PORTAL;				// merge the exit's PVS into snapshots
+	p->s.eType = ET_PORTAL;					// drives the renderer's see-through path
+	p->s.angles[0] = DirToByte( p->movedir );	// our own normal, for the window poly
+	p->s.angles2[0] = slot + 1;				// coop marker + color slot
 	gi.linkentity( p );
 
-	// visible glow: a looping fx runner — blue for A, red for B
-	gentity_t *fx = G_Spawn();
-	fx->fxFile = (char *)( slot == 0 ? "mp/bluecrystalrespawn" : "mp/redcrystalrespawn" );
-	fx->classname = "coop_portalfx";
-	VectorMA( org, 4.0f, tr.plane.normal, fx->s.origin );
-	VectorCopy( fx->s.origin, fx->currentOrigin );
-	SP_fx_runner( fx );
-	p->owner = fx;
-
 	coopPortal[cn][slot] = p;
+	G_CoopPortalRelink( cn );
+
 	gi.SendServerCommand( cn, "print \"portal %s placed — %s\n\"", slot ? "B" : "A",
 		( coopPortal[cn][0] && coopPortal[cn][1] ) ? "pair linked, walk in" : "place its twin to link" );
 }
@@ -5528,63 +5673,30 @@ void G_CoopWeaponFire( gentity_t *ent, qboolean alt_fire )
 
 /*
 ================
-G_CoopPortalBasis
-
-Tangent frame for a portal normal (self-contained — rebuilt from movedir
-each use).
-================
-*/
-static void G_CoopPortalBasis( const vec3_t n, vec3_t right, vec3_t up )
-{
-	vec3_t	tmp;
-	if ( fabs( n[2] ) > 0.9f )
-	{
-		VectorSet( tmp, 1, 0, 0 );
-	}
-	else
-	{
-		VectorSet( tmp, 0, 0, 1 );
-	}
-	CrossProduct( n, tmp, right );
-	VectorNormalize( right );
-	CrossProduct( right, n, up );
-}
-
-static void G_CoopNormalAngles( const vec3_t n, vec3_t angles )
-{
-	angles[0] = (float)( -asin( n[2] ) * ( 180.0 / M_PI ) );
-	angles[1] = (float)( atan2( n[1], n[0] ) * ( 180.0 / M_PI ) );
-	angles[2] = 0;
-}
-
-/*
-================
 G_CoopPortalTravel
 
-Velocity-mapped teleport through a linked portal pair: the incoming speed
-is preserved, redirected out of the destination portal's frame.
+Teleport through a linked portal pair using the same transform the rendered
+window shows: relative position, velocity, and view direction all map through
+G_CoopPortalTransform, so stepping through is exactly what the pane promised.
 ================
 */
 static void G_CoopPortalTravel( gentity_t *e, gentity_t *src, gentity_t *dst, const vec3_t vel )
 {
-	vec3_t	srcR, srcU, dstR, dstU, vOut, dest, exAng;
-	float	vn, vr, vu;
+	vec3_t	vOut, rel, dest, exAng, vaF;
 
-	G_CoopPortalBasis( src->movedir, srcR, srcU );
-	G_CoopPortalBasis( dst->movedir, dstR, dstU );
+	G_CoopPortalTransform( src->movedir, dst->movedir, vel, vOut );
 
-	vn = -DotProduct( vel, src->movedir );
-	vr = DotProduct( vel, srcR );
-	vu = DotProduct( vel, srcU );
-	VectorScale( dst->movedir, vn, vOut );
-	VectorMA( vOut, vr, dstR, vOut );
-	VectorMA( vOut, vu, dstU, vOut );
-
-	VectorMA( dst->currentOrigin, 24.0f, dst->movedir, dest );
+	VectorSubtract( e->currentOrigin, src->currentOrigin, rel );
+	G_CoopPortalTransform( src->movedir, dst->movedir, rel, dest );
+	VectorAdd( dest, dst->currentOrigin, dest );
+	VectorMA( dest, 4.0f, dst->movedir, dest );
 
 	if ( e->client )
 	{
-		G_CoopNormalAngles( dst->movedir, exAng );
+		AngleVectors( e->client->ps.viewangles, vaF, NULL, NULL );
+		G_CoopPortalTransform( src->movedir, dst->movedir, vaF, vaF );
+		vectoangles( vaF, exAng );
+		exAng[2] = 0;
 		TeleportPlayer( e, dest, exAng );
 		VectorCopy( vOut, e->client->ps.velocity );
 	}
