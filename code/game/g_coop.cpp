@@ -5452,32 +5452,22 @@ static void G_CoopPortalTransform( const vec3_t nSrc, const vec3_t nDst, const v
 ================
 G_CoopPortalRoll
 
-Roll the remote camera needs about its -nB axis so the rendered window shows
-exactly the G_CoopPortalTransform view.  The renderer builds the camera frame
-as (-nB, PerpendicularVector(nB), ...); we rotate that frame's axis[1] onto
-M_des(PV(nA)) — the image of the window surface's own tangent.
+Roll the remote camera needs about its +nB axis so the window is upright.
+With eventParm = -nB the renderer's remote camera frame at roll 0 is
+( +nB, PV(-nB), nB x PV(-nB) ); its "up" axis[2] must land on the exit
+portal's own up-in-plane uB, so we rotate axis[1] onto uB x nB.
 ================
 */
-static float G_CoopPortalRoll( const vec3_t nA, const vec3_t nB )
+static float G_CoopPortalRoll( const vec3_t nB )
 {
-	vec3_t	fA, rA, uA, fB, rB, uB, pvA, pvB, want, axis, cross;
-	float	cf, cr, cu;
+	vec3_t	fB, rB, uB, negB, pvB, want, crossv;
 
-	G_CoopPortalFrame( nA, fA, rA, uA );
 	G_CoopPortalFrame( nB, fB, rB, uB );
-	PerpendicularVector( pvA, nA );
-	PerpendicularVector( pvB, nB );
-
-	cf = DotProduct( pvA, fA );
-	cr = DotProduct( pvA, rA );
-	cu = DotProduct( pvA, uA );
-	VectorScale( fB, -cf, want );
-	VectorMA( want, -cr, rB, want );
-	VectorMA( want, cu, uB, want );
-
-	VectorScale( nB, -1.0f, axis );
-	CrossProduct( pvB, want, cross );
-	return (float)( atan2( DotProduct( cross, axis ), DotProduct( pvB, want ) ) * ( 180.0 / M_PI ) );
+	VectorScale( nB, -1.0f, negB );
+	PerpendicularVector( pvB, negB );
+	CrossProduct( uB, nB, want );
+	CrossProduct( pvB, want, crossv );
+	return (float)( atan2( DotProduct( crossv, nB ), DotProduct( pvB, want ) ) * ( 180.0 / M_PI ) );
 }
 
 /*
@@ -5534,15 +5524,23 @@ static void G_CoopPortalRelink( int cn )
 		p->s.angles2[1] = linked ? 1.0f : 0.0f;
 		if ( linked )
 		{
+			vec3_t	negB;
+
 			VectorCopy( twin->s.pos.trBase, p->s.origin2 );
-			p->s.eventParm = DirToByte( twin->movedir );
-			p->s.clientNum = (int)( G_CoopPortalRoll( p->movedir, twin->movedir ) * 256.0f / 360.0f );
+			// the renderer negates axis[0] for the remote camera — feed it
+			// the flipped normal so the view looks OUT of the exit portal
+			VectorScale( twin->movedir, -1.0f, negB );
+			p->s.eventParm = DirToByte( negB );
+			p->s.clientNum = (int)( G_CoopPortalRoll( twin->movedir ) * 256.0f / 360.0f );
 			G_CoopPortalFx( p, s, qfalse );
 		}
 		else
 		{
+			vec3_t	negB;
+
 			VectorCopy( p->s.pos.trBase, p->s.origin2 );
-			p->s.eventParm = DirToByte( p->movedir );
+			VectorScale( p->movedir, -1.0f, negB );
+			p->s.eventParm = DirToByte( negB );
 			p->s.clientNum = 0;
 			G_CoopPortalFx( p, s, qtrue );
 		}
@@ -5631,20 +5629,20 @@ static void G_CoopPortalPlace( gentity_t *ent, int slot )
 		int		i, ok = 0;
 
 		G_CoopPortalFrame( p->movedir, f, r, u );
-		for ( i = 0; i < 16; i++ )
+		for ( i = 0; i < 24; i++ )
 		{
-			const float a = (float)i / 16.0f * 2.0f * (float)M_PI;
+			const float a = (float)i / 24.0f * 2.0f * (float)M_PI;
 			VectorMA( org, cos( a ) * PORTAL_HW, r, edge );
 			VectorMA( edge, sin( a ) * PORTAL_HH, u, edge );
-			VectorMA( edge, 4.0f, p->movedir, front );
-			VectorMA( edge, -6.0f, p->movedir, back );
+			VectorMA( edge, 3.0f, p->movedir, front );
+			VectorMA( edge, -4.0f, p->movedir, back );
 			gi.trace( &tr2, front, NULL, NULL, back, cn, MASK_SOLID, (EG2_Collision)0, 0 );
 			if ( tr2.fraction < 1.0f && !tr2.startsolid )
 			{
 				ok++;
 			}
 		}
-		if ( ok < 13 )
+		if ( ok < 20 )
 		{
 			G_FreeEntity( p );
 			gi.SendServerCommand( cn, "print \"portal: no room — needs a bigger, flatter surface\n\"" );
