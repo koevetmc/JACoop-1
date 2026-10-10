@@ -1592,24 +1592,27 @@ cent->lerpOrigin sits 2u off the wall; the pane hugs it.
 #define COOP_PORTAL_SEG	20
 static void CG_CoopPortalPane( centity_t *cent, const entityState_t *s1 )
 {
-	static qhandle_t	winShader = 0, rimShader = 0;
+	static qhandle_t	winShader = 0, fillShader = 0, rimShader = 0, glowShader = 0;
 	polyVert_t			verts[COOP_PORTAL_SEG + 2];
 	vec3_t				n, up, right, center, hint;
 	float				d;
 	int					i;
 	const int			slot = (int)( s1->angles2[0] ) - 1;	// 0 = A blue, 1 = B orange
 	const qboolean		linked = (qboolean)( s1->angles2[1] > 0.0f );
-	const byte			rimR = slot ? 255 : 60, rimG = slot ? 140 : 150, rimB = slot ? 30 : 255;
+	const byte			rimR = slot ? 255 : 30, rimG = slot ? 130 : 90, rimB = slot ? 20 : 255;
 
 	if ( !winShader )
 	{
-		winShader = cgi_R_RegisterShader( "coop_portal_win" );
-		rimShader = cgi_R_RegisterShader( "coop_portal_rim" );
+		winShader  = cgi_R_RegisterShader( "coop_portal_win" );
+		fillShader = cgi_R_RegisterShader( "coop_portal_fill" );
+		rimShader  = cgi_R_RegisterShader( "coop_portal_rim" );
+		glowShader = cgi_R_RegisterShader( "coop_portal_glow" );
 	}
 
 	ByteToDir( (int)s1->angles[0], n );
 	VectorNormalize( n );
 	VectorCopy( cent->lerpOrigin, center );
+
 	VectorMA( center, 0.5f, n, center );	// hug the wall, off the surface paint
 
 	// oval "up": world-up in the plane for walls, a fixed tangent for floors
@@ -1619,56 +1622,71 @@ static void CG_CoopPortalPane( centity_t *cent, const entityState_t *s1 )
 	VectorNormalize( up );
 	CrossProduct( up, n, right );		// right x up = n: CCW winding faces +n
 
-	if ( linked )
+	// the pane: once linked this is the see-through window — coop_portal_win
+	// is `sort portal` + depthWrite, so the renderer renders the exit view
+	// behind it and its depth write hides the wall the pane sits on.
+	// Unlinked: a soft colored fill marks the spot.
+	memset( verts, 0, sizeof( verts ) );
+	VectorCopy( center, verts[0].xyz );
+	verts[0].st[0] = 0.5f; verts[0].st[1] = 0.5f;
+	verts[0].modulate[0] = rimR;
+	verts[0].modulate[1] = rimG;
+	verts[0].modulate[2] = rimB;
+	verts[0].modulate[3] = linked ? 28 : 110;
+	for ( i = 0; i < COOP_PORTAL_SEG; i++ )
 	{
-		// the see-through pane: center + ring fan, dim tinted so the remote
-		// view renders through it
-		memset( verts, 0, sizeof( verts ) );
-		VectorCopy( center, verts[0].xyz );
-		verts[0].st[0] = 0.5f; verts[0].st[1] = 0.5f;
-		verts[0].modulate[0] = slot ? 40 : 15;
-		verts[0].modulate[1] = slot ? 25 : 20;
-		verts[0].modulate[2] = slot ? 15 : 45;
-		verts[0].modulate[3] = 255;
-		for ( i = 0; i < COOP_PORTAL_SEG; i++ )
-		{
-			const float a = (float)i / COOP_PORTAL_SEG * 2.0f * (float)M_PI;
-			VectorMA( center, cos( a ) * COOP_PORTAL_HW, right, verts[i + 1].xyz );
-			VectorMA( verts[i + 1].xyz, sin( a ) * COOP_PORTAL_HH, up, verts[i + 1].xyz );
-			verts[i + 1].st[0] = 0.5f + cos( a ) * 0.5f;
-			verts[i + 1].st[1] = 0.5f + sin( a ) * 0.5f;
-			memcpy( verts[i + 1].modulate, verts[0].modulate, 4 );
-		}
-		verts[COOP_PORTAL_SEG + 1] = verts[1];
-		cgi_R_AddPolyToScene( winShader, COOP_PORTAL_SEG + 2, verts );
+		const float a = (float)i / COOP_PORTAL_SEG * 2.0f * (float)M_PI;
+		VectorMA( center, cos( a ) * COOP_PORTAL_HW, right, verts[i + 1].xyz );
+		VectorMA( verts[i + 1].xyz, sin( a ) * COOP_PORTAL_HH, up, verts[i + 1].xyz );
+		verts[i + 1].st[0] = 0.5f + cos( a ) * 0.5f;
+		verts[i + 1].st[1] = 0.5f + sin( a ) * 0.5f;
+		memcpy( verts[i + 1].modulate, verts[0].modulate, 4 );
 	}
+	verts[COOP_PORTAL_SEG + 1] = verts[1];
+	cgi_R_AddPolyToScene( linked ? winShader : fillShader, COOP_PORTAL_SEG + 2, verts );
 
-	// glowing rim: annulus quads just outside the pane
+	// the bold rim — a solid saturated annulus hugging the pane edge, then a
+	// wider soft additive halo for the glow
 	for ( i = 0; i < 16; i++ )
 	{
 		const float	a0 = (float)i / 16 * 2.0f * (float)M_PI;
 		const float	a1 = (float)( i + 1 ) / 16 * 2.0f * (float)M_PI;
-		const float	oW = COOP_PORTAL_HW + 7.0f, oH = COOP_PORTAL_HH + 7.0f;
-		polyVert_t	q[4];
+		polyVert_t	q[4], g[4];
 		int			k;
 
 		memset( q, 0, sizeof( q ) );
+		memset( g, 0, sizeof( g ) );
 		for ( k = 0; k < 4; k++ )
 		{
 			const float	aa = ( k == 0 || k == 3 ) ? a0 : a1;
-			const float	rw = ( k < 2 ) ? oW : COOP_PORTAL_HW;
-			const float	rh = ( k < 2 ) ? oH : COOP_PORTAL_HH;
+
+			// solid rim: pane edge out to +7
+			const float	rw = ( k < 2 ) ? COOP_PORTAL_HW + 7.0f : COOP_PORTAL_HW - 1.0f;
+			const float	rh = ( k < 2 ) ? COOP_PORTAL_HH + 7.0f : COOP_PORTAL_HH - 1.0f;
+			// glow halo: +7 out to +20
+			const float	gw = ( k < 2 ) ? COOP_PORTAL_HW + 20.0f : COOP_PORTAL_HW + 7.0f;
+			const float	gh = ( k < 2 ) ? COOP_PORTAL_HH + 20.0f : COOP_PORTAL_HH + 7.0f;
 
 			VectorMA( center, cos( aa ) * rw, right, q[k].xyz );
 			VectorMA( q[k].xyz, sin( aa ) * rh, up, q[k].xyz );
-			q[k].st[0] = 0.5f + cos( aa ) * 0.5f * ( k < 2 ? 1.15f : 1.0f );
-			q[k].st[1] = 0.5f + sin( aa ) * 0.5f * ( k < 2 ? 1.15f : 1.0f );
+			q[k].st[0] = 0.5f + cos( aa ) * 0.5f;
+			q[k].st[1] = 0.5f + sin( aa ) * 0.5f;
 			q[k].modulate[0] = rimR;
 			q[k].modulate[1] = rimG;
 			q[k].modulate[2] = rimB;
 			q[k].modulate[3] = 255;
+
+			VectorMA( center, cos( aa ) * gw, right, g[k].xyz );
+			VectorMA( g[k].xyz, sin( aa ) * gh, up, g[k].xyz );
+			g[k].st[0] = 0.5f + cos( aa ) * 0.5f;
+			g[k].st[1] = 0.5f + sin( aa ) * 0.5f;
+			g[k].modulate[0] = rimR >> 1;
+			g[k].modulate[1] = rimG >> 1;
+			g[k].modulate[2] = rimB >> 1;
+			g[k].modulate[3] = 255;
 		}
 		cgi_R_AddPolyToScene( rimShader, 4, q );
+		cgi_R_AddPolyToScene( glowShader, 4, g );
 	}
 }
 

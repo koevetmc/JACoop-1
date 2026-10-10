@@ -1,30 +1,61 @@
 // JACoop: dynamic portal-gun surfaces.
-// coop_portal_win is the see-through pane — sort portal makes the renderer
-// run R_MirrorViewBySurface on it, matching against the ET_PORTAL entity the
-// game syncs (origin2 = exit portal, eventParm = exit normal).  The stage is
-// an additive, near-black vertex-tinted glow so the remote view shows through.
+//
+// coop_portal_win is the see-through pane. The `portal` keyword puts it at
+// SS_PORTAL sort — the renderer's R_MirrorViewBySurface picks it up and
+// renders the exit portal's view first; the stage's depthWrite punches a
+// hole in the wall behind so that remote view actually survives when the
+// main scene draws over it.  Vertex alpha is a faint colored sheen.
+
 coop_portal_win
 {
-	surfaceparm nomarks
+	portal
 	surfaceparm nolightmap
+	surfaceparm nomarks
 	cull none
-	sort portal
 	{
-		map gfx/effects/whiteglow
-		blendFunc add
+		map $whiteimage
+		blendFunc GL_SRC_ALPHA GL_ONE_MINUS_SRC_ALPHA
+		rgbGen vertex
+		alphaGen vertex
+		depthWrite
+	}
+}
+
+// soft colored fill shown while the pair is unlinked (no remote view yet)
+coop_portal_fill
+{
+	surfaceparm nolightmap
+	surfaceparm nomarks
+	cull none
+	{
+		map $whiteimage
+		blendFunc GL_SRC_ALPHA GL_ONE_MINUS_SRC_ALPHA
+		rgbGen vertex
+		alphaGen vertex
+	}
+}
+
+// the bold saturated oval rim
+coop_portal_rim
+{
+	surfaceparm nolightmap
+	surfaceparm nomarks
+	cull none
+	{
+		map $whiteimage
 		rgbGen vertex
 	}
 }
 
-// the bright oval rim around the pane
-coop_portal_rim
+// soft additive halo just outside the rim
+coop_portal_glow
 {
-	surfaceparm nomarks
 	surfaceparm nolightmap
+	surfaceparm nomarks
 	cull none
 	{
 		map gfx/effects/whiteglow
-		blendFunc add
+		blendFunc GL_ONE GL_ONE
 		rgbGen vertex
 	}
 }
