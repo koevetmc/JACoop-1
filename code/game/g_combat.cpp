@@ -3693,16 +3693,19 @@ void player_die( gentity_t *self, gentity_t *inflictor, gentity_t *attacker, int
 	// coop: feed the site's death log — every call past the PM_DEAD branch is
 	// a fresh player death. Killer = player name, else NPC_type (reborn,
 	// stormtrooper...), else the entity classname, else "world".
-	if ( G_CoopIsPlayer( self ) ) {
-		// coop: site feed is player deaths only — every NPC carries a
-		// gclient in SP, so an unguarded check floods it with kills
+	if ( G_CoopIsPlayer( self ) && !self->NPC && self->client->pers.netname[0] ) {
+		// coop: site feed is player deaths only — NPCs in SP carry a gclient
+		// and can land in client-numbered slots, so both the slot check and
+		// the NPC pointer are needed to keep bots/beasts out of the feed.
 		const char *killer = "world";
-		if ( attacker && attacker->client && attacker != self ) {
-			killer = attacker->client->pers.netname;
-		} else if ( attacker && attacker->NPC_type && attacker->NPC_type[0] ) {
-			killer = attacker->NPC_type;
-		} else if ( attacker && attacker->classname ) {
-			killer = attacker->classname;
+		if ( attacker && attacker != self ) {
+			if ( attacker->client && !attacker->NPC && attacker->client->pers.netname[0] ) {
+				killer = attacker->client->pers.netname;	// a real player
+			} else if ( attacker->NPC_type && attacker->NPC_type[0] ) {
+				killer = attacker->NPC_type;	// reborn, stormtrooper, sand_creature...
+			} else if ( attacker->classname ) {
+				killer = attacker->classname;
+			}
 		}
 		G_CoopReportDeath( self->client->pers.netname, killer, self->s.number );
 	}
