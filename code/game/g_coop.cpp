@@ -2199,6 +2199,10 @@ cvar_t	*g_coopWaves;		// wave mode: 0 = off, 1 = endless enemy waves
 cvar_t	*g_coopHolocrons;	// scattered holocron pickups per map (0 = off)
 cvar_t	*g_mpPhysics;		// 1 = multiplayer movement constants for every player
 cvar_t	*g_coopVersus;		// 1 = players may join TEAM_ENEMY and hunt the Jedi (coop_team)
+cvar_t	*g_coopBots;		// companion NPC allies kept with the party (0 = off)
+static int		coopBotsCheck;		// bot frame throttle
+static int		coopBotsRespawn;	// level.time a fallen companion gets replaced
+static qboolean	coopBotsFilled;		// per-map initial spawn done
 
 void G_CoopInitDownedCvars( void )
 {
@@ -2228,6 +2232,11 @@ void G_CoopInitDownedCvars( void )
 	g_mpPhysics = gi.cvar( "g_mpPhysics", "0", CVAR_ARCHIVE|CVAR_SERVERINFO );
 	// serverinfo: versus sessions show up in server info and the scoreboard
 	g_coopVersus = gi.cvar( "g_coopVersus", "0", CVAR_ARCHIVE|CVAR_SERVERINFO );
+	// serverinfo: joiners see how many AI companions the party keeps
+	g_coopBots = gi.cvar( "g_coopBots", "0", CVAR_ARCHIVE|CVAR_SERVERINFO );
+	coopBotsFilled = qfalse;
+	coopBotsCheck = 0;
+	coopBotsRespawn = 0;
 	memset( coopStatDowns, 0, sizeof( coopStatDowns ) );
 	memset( coopStatRevives, 0, sizeof( coopStatRevives ) );
 	memset( coopStatDeaths, 0, sizeof( coopStatDeaths ) );
@@ -3052,6 +3061,313 @@ void G_CoopSimonCommand( gentity_t *ent )
 	}
 	G_CoopPrintTr( -1, "print", "^1SIMON DIT : ^7%s a invoque Simon l'Ewok tueur !\n",
 		"^1SIMON SAYS: ^7%s summoned Simon the Killer Ewok!\n", ent->client->pers.netname );
+}
+
+/*
+==============================================================================
+Companion bots (g_coopBots / coop_bot)
+
+AI teammates, not real clients: ally NPCs on TEAM_PLAYER riding the stock
+"follow your leader" brain (the vanilla Jan/Kyle/Chewie escort path - spawn
+code already hands them BS_FOLLOW_LEADER and player 0, we just retarget the
+leader to their real owner). g_coopBots tops the party up to that many bots
+each map and replaces the fallen after a cooldown; "coop_bot [type]" summons
+one for the caller and "coop_bot remove" dismisses it. They are outside
+CS_PLAYERS, never eat revives, and their kills credit nobody.
+==============================================================================
+*/
+#define COOP_BOT_RESPAWN	30000	// ms before a dead companion is replaced
+
+extern void NPC_PrecacheByClassName( const char *type );	// NPC_spawn.cpp
+
+// spawnable allies - TEAM_PLAYER types from the stock npc files (no
+// jedi_random: it needs the SP_NPC_Jedi special case, no seeker/test either)
+static const char *coopBotTypes[] = {
+	"jedi", "jedif", "jedimaster", "jeditrainer", "kyle", "luke",
+	"jan", "rosh_penin", "chewie", "lando", "bespincop", "rebel", "rebel2",
+	"prisoner", "elder", "monmothma", "merchant",
+};
+#define COOP_BOT_TYPES	( sizeof( coopBotTypes ) / sizeof( coopBotTypes[0] ) )
+
+// default picks for the auto-fill and a bare "coop_bot" - the saber allies
+static const char *coopBotDefault[] = { "jedi", "jedif", "jedimaster", "jeditrainer", "kyle", "luke" };
+#define COOP_BOT_DEFAULTS	( sizeof( coopBotDefault ) / sizeof( coopBotDefault[0] ) )
+
+static int G_CoopBotCount( void )
+{
+	int	n = 0;
+	for ( int i = 0; i < globals.num_entities; i++ )
+	{
+		gentity_t *e = &g_entities[i];
+		if ( e->inuse && e->NPC && e->client && e->health > 0
+			&& e->targetname && !Q_stricmp( e->targetname, "coopbot" ) )
+		{
+			n++;
+		}
+	}
+	return n;
+}
+
+// the living companion currently following this player, if any
+static gentity_t *G_CoopMyBot( const gentity_t *owner )
+{
+	for ( int i = 0; i < globals.num_entities; i++ )
+	{
+		gentity_t *e = &g_entities[i];
+		if ( e->inuse && e->NPC && e->client && e->health > 0
+			&& e->targetname && !Q_stricmp( e->targetname, "coopbot" )
+			&& e->client->leader == owner )
+		{
+			return e;
+		}
+	}
+	return NULL;
+}
+
+// round-robin pick of a living Jedi-side player to adopt a bot
+static gentity_t *G_CoopBotLeader( void )
+{
+	static int	next = 0;
+	int			i, n = 0;
+
+	for ( i = 0; i < MAX_CLIENTS; i++ )
+	{
+		gentity_t *e = &g_entities[i];
+		if ( e->inuse && e->client && e->client->pers.connected == CON_CONNECTED
+			&& e->health > 0
+			&& ( !G_CoopVersusOn() || G_CoopSideOf( e ) != TEAM_ENEMY ) )
+		{
+			n++;
+		}
+	}
+	if ( !n )
+	{
+		return NULL;
+	}
+	next %= n;
+	for ( i = 0; i < MAX_CLIENTS; i++ )
+	{
+		gentity_t *e = &g_entities[i];
+		if ( e->inuse && e->client && e->client->pers.connected == CON_CONNECTED
+			&& e->health > 0
+			&& ( !G_CoopVersusOn() || G_CoopSideOf( e ) != TEAM_ENEMY ) )
+		{
+			if ( next-- == 0 )
+			{
+				next = n;
+				return e;
+			}
+		}
+	}
+	return NULL;
+}
+
+// drop one ally NPC beside owner and point its leader at him (the spawn
+// code defaults every ally to player 0, so it gets stamped with a unique
+// tag first and renamed once found)
+static gentity_t *G_CoopSpawnBot( gentity_t *owner, const char *npcType )
+{
+	static int	seq = 0;
+	char		tag[32];
+	gentity_t	*spawner, *bot = NULL;
+	vec3_t		forward, end;
+	trace_t		tr;
+	int			i;
+
+	spawner = G_Spawn();
+	if ( !spawner )
+	{
+		return NULL;
+	}
+	spawner->e_ThinkFunc = thinkF_G_FreeEntity;
+	spawner->nextthink = level.time + FRAMETIME;
+
+	AngleVectors( owner->client->ps.viewangles, forward, NULL, NULL );
+	VectorNormalize( forward );
+	VectorMA( owner->currentOrigin, 96, forward, end );
+	gi.trace( &tr, owner->currentOrigin, NULL, NULL, end, 0, MASK_SOLID, (EG2_Collision)0, 0 );
+	VectorCopy( tr.endpos, end );
+	end[2] -= 24;
+	gi.trace( &tr, tr.endpos, NULL, NULL, end, 0, MASK_SOLID, (EG2_Collision)0, 0 );
+	VectorCopy( tr.endpos, end );
+	end[2] += 24;
+	G_SetOrigin( spawner, end );
+	VectorCopy( spawner->currentOrigin, spawner->s.origin );
+	spawner->s.angles[1] = owner->client->ps.viewangles[1] + 180.0f;	// face the owner
+	gi.linkentity( spawner );
+
+	Com_sprintf( tag, sizeof( tag ), "coopbot_new%d", seq++ );
+	spawner->NPC_type = G_NewString( npcType );
+	spawner->NPC_targetname = G_NewString( tag );
+	spawner->count = 1;
+	spawner->delay = 0;
+	spawner->wait = 500;
+	NPC_PrecacheByClassName( spawner->NPC_type );
+	NPC_Spawn( spawner, spawner, spawner );
+
+	for ( i = 0; i < globals.num_entities; i++ )
+	{
+		gentity_t *e = &g_entities[i];
+		if ( e->inuse && e->NPC && e->client && e->targetname && !Q_stricmp( e->targetname, tag ) )
+		{
+			bot = e;
+			break;
+		}
+	}
+	if ( !bot )
+	{
+		return NULL;
+	}
+	bot->targetname = (char *)"coopbot";	// count/dismiss tag
+	bot->client->leader = owner;
+	bot->NPC->behaviorState = bot->NPC->defaultBehavior = BS_FOLLOW_LEADER;
+	return bot;
+}
+
+void G_CoopBotCommand( gentity_t *ent )
+{
+	extern cvar_t *g_coopBots;
+	const char	*arg = gi.argv( 1 );
+	gentity_t	*bot;
+
+	if ( !G_CoopIsPlayer( ent ) || !g_coopBots || g_coopBots->integer <= 0 )
+	{
+		return;
+	}
+	if ( arg[0] && ( !Q_stricmp( arg, "remove" ) || !Q_stricmp( arg, "dismiss" ) ) )
+	{
+		bot = G_CoopMyBot( ent );
+		if ( !bot )
+		{
+			G_CoopPrintTr( ent->s.number, "print", "Aucun compagnon ne te suit.\n",
+				"No companion is following you.\n" );
+			return;
+		}
+		bot->health = 0;
+		GEntity_DieFunc( bot, bot, bot, 100, MOD_UNKNOWN );
+		G_CoopPrintTr( -1, "print", "^7%s a congedie son compagnon.\n",
+			"^7%s dismissed a companion.\n", ent->client->pers.netname );
+		return;
+	}
+	if ( G_CoopVersusOn() && G_CoopSideOf( ent ) == TEAM_ENEMY )
+	{
+		G_CoopPrintTr( ent->s.number, "print", "Les mechants n'ont pas de compagnons.\n",
+			"The hunters don't get companions.\n" );
+		return;
+	}
+	if ( ent->health <= 0 || G_CoopIsDowned( ent ) )
+	{
+		return;
+	}
+	if ( G_CoopMyBot( ent ) )
+	{
+		G_CoopPrintTr( ent->s.number, "print", "Un compagnon te suit deja (coop_bot remove pour le congedier).\n",
+			"A companion already follows you (coop_bot remove to dismiss it).\n" );
+		return;
+	}
+	if ( G_CoopBotCount() >= g_coopBots->integer )
+	{
+		G_CoopPrintTr( ent->s.number, "print", "Le groupe a deja %d compagnon(s) (g_coopBots).\n",
+			"The party already has %d companion(s) (g_coopBots).\n", g_coopBots->integer );
+		return;
+	}
+
+	const char	*type = NULL;
+	int			i;
+	if ( arg[0] )
+	{
+		for ( i = 0; i < (int)COOP_BOT_TYPES; i++ )
+		{
+			if ( !Q_stricmp( arg, coopBotTypes[i] ) )
+			{
+				type = coopBotTypes[i];
+				break;
+			}
+		}
+		if ( !type )
+		{
+			G_CoopPrintTr( ent->s.number, "print", "Compagnon inconnu '%s' - jedi, jedif, jedimaster, jeditrainer, kyle, luke, jan, chewie, lando, rebel...\n",
+				"Unknown companion '%s' - jedi, jedif, jedimaster, jeditrainer, kyle, luke, jan, chewie, lando, rebel...\n", arg );
+			return;
+		}
+	}
+	else
+	{
+		type = coopBotDefault[ rand() % COOP_BOT_DEFAULTS ];
+	}
+
+	bot = G_CoopSpawnBot( ent, type );
+	if ( !bot )
+	{
+		return;
+	}
+	G_CoopPrintTr( -1, "print", "^5%s^7 rejoint le groupe aux cotes de %s.\n",
+		"^5%s^7 joins the party at %s's side.\n", type, ent->client->pers.netname );
+}
+
+void G_CoopBotFrame( void )
+{
+	extern cvar_t *g_coopBots;
+	int			i;
+
+	if ( !g_coopBots || g_coopBots->integer <= 0 )
+	{
+		return;
+	}
+	if ( level.time < coopBotsCheck )
+	{
+		return;
+	}
+	coopBotsCheck = level.time + 1000;
+
+	// a bot whose owner left or turned enemy adopts another Jedi-side player
+	for ( i = 0; i < globals.num_entities; i++ )
+	{
+		gentity_t *e = &g_entities[i];
+		if ( !e->inuse || !e->NPC || !e->client || e->health <= 0
+			|| !e->targetname || Q_stricmp( e->targetname, "coopbot" ) )
+		{
+			continue;
+		}
+		gentity_t *leader = e->client->leader;
+		if ( !leader || !leader->inuse || !leader->client
+			|| leader->client->pers.connected != CON_CONNECTED
+			|| ( G_CoopVersusOn() && G_CoopSideOf( leader ) == TEAM_ENEMY ) )
+		{
+			e->client->leader = G_CoopBotLeader();
+		}
+	}
+
+	// first fill a few seconds in so someone has actually spawned, then keep
+	// the headcount topped up on a cooldown
+	if ( !coopBotsFilled )
+	{
+		gentity_t *leader = G_CoopBotLeader();
+		if ( !leader )
+		{
+			return;	// nobody alive yet - try again next second
+		}
+		coopBotsFilled = qtrue;
+		for ( i = 0; i < g_coopBots->integer; i++ )
+		{
+			leader = G_CoopBotLeader();
+			if ( leader )
+			{
+				G_CoopSpawnBot( leader, coopBotDefault[ i % COOP_BOT_DEFAULTS ] );
+			}
+		}
+		return;
+	}
+	if ( G_CoopBotCount() < g_coopBots->integer && level.time >= coopBotsRespawn )
+	{
+		gentity_t *leader = G_CoopBotLeader();
+		if ( leader && G_CoopSpawnBot( leader, coopBotDefault[ rand() % COOP_BOT_DEFAULTS ] ) )
+		{
+			coopBotsRespawn = level.time + COOP_BOT_RESPAWN;
+			G_CoopPrintTr( -1, "print", "Un compagnon rejoint le groupe.\n",
+				"A companion joins the party.\n" );
+		}
+	}
 }
 
 /*

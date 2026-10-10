@@ -2226,6 +2226,7 @@ void G_RunFrame( int levelTime ) {
 	G_CoopTrailFrame();	// coop: sample opt-in player positions for the site's route map
 	G_CoopSupporterFrame();	// coop: refresh the CS_PLAYERS supporter flag when the site answers
 	G_CoopWaveFrame();		// coop: endless waves when g_coopWaves is on
+	G_CoopBotFrame();		// coop: companion allies when g_coopBots is on
 	{
 		extern void G_CoopPhysicsFrame( void );
 		G_CoopPhysicsFrame();	// coop: g_mpPhysics -> bg_mpPhysics + CS_COOP_PHYSICS
