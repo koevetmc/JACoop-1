@@ -21,7 +21,9 @@ internal static class Installer
         { "rdsp-vanilla_x86_64.dll", ""     },
         { "rdsp-vanilla_x86_64.dll", "bin"  },
         { "jagamex86_64.dll",        ""     },
+        { "jagamex86_64.dll",        "bin"  },
         { "zz_jacoop.pk3",           "base" },
+        { "JACoop.exe",              ""     },
     };
 
     // build id baked in at compile time (resource "version.txt", set via
@@ -62,6 +64,7 @@ internal static class Installer
             { "rdsp-vanilla_x86_64.dll", ""     },
             { "jagamex86_64.dll",        ""     },
             { "zz_jacoop.pk3",           "base" },
+            { "JACoop.exe",              ""     },
         };
         for (int i = 0; i < check.GetLength(0); i++)
         {

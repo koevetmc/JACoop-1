@@ -15,6 +15,9 @@
 #include <windows.h>
 #include <shlobj.h>
 #include <shellapi.h>
+#include <winhttp.h>
+#include <bcrypt.h>
+#include <commctrl.h>
 #include <stdio.h>
 #include <string>
 #include <vector>
@@ -23,6 +26,9 @@
 #pragma comment(lib, "ole32.lib")
 #pragma comment(lib, "advapi32.lib")
 #pragma comment(lib, "user32.lib")
+#pragma comment(lib, "winhttp.lib")
+#pragma comment(lib, "bcrypt.lib")
+#pragma comment(lib, "comctl32.lib")
 
 static std::wstring g_root;		// folder of the exe (the JACoop folder)
 static std::wstring g_ini;
@@ -235,6 +241,355 @@ static std::wstring SanitizeAddress( std::wstring a ) {
 	return out;
 }
 
+// ---- self-update ----
+//
+// The site serves an update feed at advjksite.koevetmc.workers.dev:
+//   /coop/manifest.json        {"version":"sha","files":[{"name","size","md5"}]}
+//   /coop/files/<name>         the payload bytes
+//
+// On launch: if jacoop-version.txt doesn't match the manifest, every payload
+// whose on-disk bytes differ is downloaded to *.new, MD5-verified, then moved
+// over the target (engine files land at the root AND under bin\ like the
+// installer; the pk3 goes to base\). JACoop.exe itself can't be swapped while
+// running — it stays staged as JACoop.exe.new and a spawned swapper applies
+// it then relaunches. Any failure falls through to launching what's on disk.
+
+static const wchar_t *UPD_HOST = L"advjksite.koevetmc.workers.dev";
+
+struct UpdFile {
+	std::string	name;
+	DWORD		size;
+	char		md5[33];	// lowercase hex
+};
+
+// ---- tiny update window ----
+static HWND	g_updBar = NULL, g_updWnd = NULL;
+
+static void UpdPump() {
+	MSG msg;
+	while ( PeekMessageW( &msg, NULL, 0, 0, PM_REMOVE ) ) {
+		TranslateMessage( &msg );
+		DispatchMessageW( &msg );
+	}
+}
+
+static void UpdShow( const wchar_t *text ) {
+	INITCOMMONCONTROLSEX icc = { sizeof( icc ), ICC_PROGRESS_CLASS };
+	InitCommonControlsEx( &icc );
+	WNDCLASSW wc = { 0 };
+	wc.lpfnWndProc = DefWindowProcW;
+	wc.hInstance = GetModuleHandleW( NULL );
+	wc.lpszClassName = L"JACoopUpd";
+	wc.hCursor = LoadCursorW( NULL, IDC_ARROW );
+	wc.hbrBackground = (HBRUSH)( COLOR_BTNFACE + 1 );
+	RegisterClassW( &wc );
+	g_updWnd = CreateWindowExW( WS_EX_TOOLWINDOW | WS_EX_TOPMOST, L"JACoopUpd", L"JACoop",
+		WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU, CW_USEDEFAULT, CW_USEDEFAULT, 380, 120,
+		NULL, NULL, wc.hInstance, NULL );
+	HWND lbl = CreateWindowExW( 0, L"STATIC", text, WS_CHILD | WS_VISIBLE,
+		16, 14, 340, 20, g_updWnd, NULL, wc.hInstance, NULL );
+	(void)lbl;
+	g_updBar = CreateWindowExW( 0, PROGRESS_CLASSW, NULL, WS_CHILD | WS_VISIBLE,
+		16, 42, 340, 18, g_updWnd, NULL, wc.hInstance, NULL );
+	SendMessageW( g_updBar, PBM_SETRANGE32, 0, 1000 );
+	ShowWindow( g_updWnd, SW_SHOW );
+	UpdPump();
+}
+
+static void UpdProgress( DWORD done, DWORD total ) {
+	if ( !g_updBar ) return;
+	SendMessageW( g_updBar, PBM_SETPOS, (WPARAM)( total ? ( done * 1000 / total ) : 0 ), 0 );
+	UpdPump();
+}
+
+static void UpdClose() {
+	if ( g_updWnd ) { DestroyWindow( g_updWnd ); g_updWnd = NULL; }
+	g_updBar = NULL;
+}
+
+// ---- HTTP: WinHTTP GET, into memory (manifest) or a file (payloads) ----
+static bool HttpGet( const wchar_t *path, std::vector<BYTE> &out ) {
+	HINTERNET session = NULL, connect = NULL, request = NULL;
+	bool ok = false;
+	session = WinHttpOpen( L"JACoop-Updater", WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY,
+		WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0 );
+	if ( !session ) goto done;
+	connect = WinHttpConnect( session, UPD_HOST, INTERNET_DEFAULT_HTTPS_PORT, 0 );
+	if ( !connect ) goto done;
+	request = WinHttpOpenRequest( connect, L"GET", path, NULL,
+		WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES, WINHTTP_FLAG_SECURE );
+	if ( !request ) goto done;
+	WinHttpSetTimeouts( request, 4000, 4000, 4000, 8000 );
+	if ( !WinHttpSendRequest( request, WINHTTP_NO_ADDITIONAL_HEADERS, 0,
+			WINHTTP_NO_REQUEST_DATA, 0, 0, 0 ) ) goto done;
+	if ( !WinHttpReceiveResponse( request, NULL ) ) goto done;
+	{
+		DWORD status = 0, sz = sizeof( status );
+		WinHttpQueryHeaders( request, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER,
+			WINHTTP_HEADER_NAME_BY_INDEX, &status, &sz, WINHTTP_NO_HEADER_INDEX );
+		if ( status != 200 ) goto done;
+	}
+	for ( ;; ) {
+		BYTE buf[8192];
+		DWORD avail = 0, got = 0;
+		if ( !WinHttpQueryDataAvailable( request, &avail ) ) goto done;
+		if ( !avail ) break;
+		if ( avail > sizeof( buf ) ) avail = sizeof( buf );
+		if ( !WinHttpReadData( request, buf, avail, &got ) || !got ) break;
+		out.insert( out.end(), buf, buf + got );
+	}
+	ok = true;
+done:
+	if ( request ) WinHttpCloseHandle( request );
+	if ( connect ) WinHttpCloseHandle( connect );
+	if ( session ) WinHttpCloseHandle( session );
+	return ok;
+}
+
+static bool HttpGetFile( const wchar_t *path, const std::wstring &dst,
+		DWORD expectSize, DWORD base, DWORD total ) {
+	HINTERNET session = NULL, connect = NULL, request = NULL;
+	HANDLE out = INVALID_HANDLE_VALUE;
+	bool ok = false;
+	DWORD got = 0;
+	session = WinHttpOpen( L"JACoop-Updater", WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY,
+		WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0 );
+	if ( !session ) goto done;
+	connect = WinHttpConnect( session, UPD_HOST, INTERNET_DEFAULT_HTTPS_PORT, 0 );
+	if ( !connect ) goto done;
+	request = WinHttpOpenRequest( connect, L"GET", path, NULL,
+		WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES, WINHTTP_FLAG_SECURE );
+	if ( !request ) goto done;
+	WinHttpSetTimeouts( request, 8000, 8000, 8000, 30000 );
+	if ( !WinHttpSendRequest( request, WINHTTP_NO_ADDITIONAL_HEADERS, 0,
+			WINHTTP_NO_REQUEST_DATA, 0, 0, 0 ) ) goto done;
+	if ( !WinHttpReceiveResponse( request, NULL ) ) goto done;
+	{
+		DWORD status = 0, sz = sizeof( status );
+		WinHttpQueryHeaders( request, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER,
+			WINHTTP_HEADER_NAME_BY_INDEX, &status, &sz, WINHTTP_NO_HEADER_INDEX );
+		if ( status != 200 ) goto done;
+	}
+	out = CreateFileW( dst.c_str(), GENERIC_WRITE, 0, NULL, CREATE_ALWAYS,
+		FILE_ATTRIBUTE_NORMAL, NULL );
+	if ( out == INVALID_HANDLE_VALUE ) goto done;
+	for ( ;; ) {
+		BYTE buf[16384];
+		DWORD avail = 0, rd = 0, wr = 0;
+		if ( !WinHttpQueryDataAvailable( request, &avail ) ) break;
+		if ( !avail ) break;
+		if ( avail > sizeof( buf ) ) avail = sizeof( buf );
+		if ( !WinHttpReadData( request, buf, avail, &rd ) || !rd ) break;
+		if ( !WriteFile( out, buf, rd, &wr, NULL ) || wr != rd ) goto done;
+		got += rd;
+		UpdProgress( base + got, total );
+	}
+	ok = ( got == expectSize );
+done:
+	if ( out != INVALID_HANDLE_VALUE ) CloseHandle( out );
+	if ( request ) WinHttpCloseHandle( request );
+	if ( connect ) WinHttpCloseHandle( connect );
+	if ( session ) WinHttpCloseHandle( session );
+	if ( !ok ) DeleteFileW( dst.c_str() );
+	return ok;
+}
+
+// ---- MD5 (CNG) for verify-after-download ----
+static bool Md5File( const std::wstring &path, char out[33] ) {
+	BCRYPT_ALG_HANDLE alg = NULL;
+	BCRYPT_HASH_HANDLE h = NULL;
+	bool ok = false;
+	DWORD objLen = 0, cbData = 0, hashLen = 0;
+	std::vector<BYTE> obj, hash;
+	HANDLE f = CreateFileW( path.c_str(), GENERIC_READ, FILE_SHARE_READ, NULL,
+		OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL );
+	if ( f == INVALID_HANDLE_VALUE ) return false;
+	if ( BCryptOpenAlgorithmProvider( &alg, BCRYPT_MD5_ALGORITHM, NULL, 0 ) != 0 ) goto done;
+	BCryptGetProperty( alg, BCRYPT_OBJECT_LENGTH, (PUCHAR)&objLen, sizeof( objLen ), &cbData, 0 );
+	BCryptGetProperty( alg, BCRYPT_HASH_LENGTH, (PUCHAR)&hashLen, sizeof( hashLen ), &cbData, 0 );
+	obj.resize( objLen ); hash.resize( hashLen );
+	if ( BCryptCreateHash( alg, &h, obj.data(), objLen, NULL, 0, 0 ) != 0 ) goto done;
+	for ( ;; ) {
+		BYTE buf[65536];
+		DWORD rd = 0;
+		if ( !ReadFile( f, buf, sizeof( buf ), &rd, NULL ) ) goto done;
+		if ( !rd ) break;
+		if ( BCryptHashData( h, buf, rd, 0 ) != 0 ) goto done;
+	}
+	if ( BCryptFinishHash( h, hash.data(), hashLen, 0 ) != 0 ) goto done;
+	for ( DWORD i = 0; i < hashLen && i < 16; i++ )
+		sprintf( out + i * 2, "%02x", hash[i] );
+	out[32] = 0;
+	ok = true;
+done:
+	CloseHandle( f );
+	if ( h ) BCryptDestroyHash( h );
+	if ( alg ) BCryptCloseAlgorithmProvider( alg, 0 );
+	return ok;
+}
+
+// ---- manifest: fixed shape, strstr parse ----
+// {"version":"8adbc309","files":[{"name":"x","size":N,"md5":"h"},...]}
+static bool ParseManifest( const std::string &json, std::string &ver, std::vector<UpdFile> &files ) {
+	const char *p = strstr( json.c_str(), "\"version\":\"" );
+	if ( !p ) return false;
+	p += 11;
+	const char *e = strchr( p, '"' );
+	if ( !e || e - p > 80 ) return false;
+	ver.assign( p, e - p );
+	for ( p = strstr( p, "\"name\":\"" ); p; p = strstr( e, "\"name\":\"" ) ) {
+		UpdFile f = { "", 0, "" };
+		p += 8;
+		e = strchr( p, '"' );
+		if ( !e || e - p > 64 ) return false;
+		f.name.assign( p, e - p );
+		const char *s = strstr( e, "\"size\":" );
+		const char *m = strstr( e, "\"md5\":\"" );
+		if ( !s || !m ) return false;
+		f.size = (DWORD)strtoul( s + 7, NULL, 10 );
+		m += 7;
+		const char *me = strchr( m, '"' );
+		if ( !me || me - m != 32 ) return false;
+		memcpy( f.md5, m, 32 );
+		files.push_back( f );
+		p = me;
+	}
+	return !files.empty();
+}
+
+// ---- JACoop.exe.new -> swapper: waits for this process to exit, replaces
+// the launcher, relaunches it with the same mode/address ----
+static void SpawnLauncherSwap( const std::wstring &mode, const std::wstring &address ) {
+	std::wstring newExe = Join( g_root, L"JACoop.exe.new" );
+	std::wstring exe = Join( g_root, L"JACoop.exe" );
+	std::wstring cmd = L"cmd.exe /c ping -n 2 127.0.0.1 >nul && move /y \"" + newExe +
+		L"\" \"" + exe + L"\" && start \"\" \"" + exe + L"\" " + mode;
+	if ( !address.empty() ) cmd += L" " + address;
+	std::vector<wchar_t> buf( cmd.begin(), cmd.end() );
+	buf.push_back( 0 );
+	STARTUPINFOW si = { sizeof( si ) };
+	si.dwFlags = STARTF_USESHOWWINDOW;
+	si.wShowWindow = SW_HIDE;
+	PROCESS_INFORMATION pi = { 0 };
+	if ( CreateProcessW( NULL, buf.data(), NULL, NULL, FALSE, CREATE_NO_WINDOW,
+			NULL, NULL, &si, &pi ) ) {
+		CloseHandle( pi.hThread );
+		CloseHandle( pi.hProcess );
+	}
+}
+
+// one instance at a time so two simultaneous launches don't corrupt the swap
+static bool g_updMutexHeld = false;
+
+static void SelfUpdate( const std::wstring &mode, const std::wstring &address ) {
+	HANDLE mutex = CreateMutexW( NULL, TRUE, L"JACoopSelfUpdate" );
+	if ( mutex && GetLastError() == ERROR_ALREADY_EXISTS ) {
+		CloseHandle( mutex );
+		return;	// another JACoop.exe is already updating — just launch
+	}
+	g_updMutexHeld = ( mutex != NULL );
+
+	std::vector<BYTE> raw;
+	if ( !HttpGet( L"/coop/manifest.json?upd=1", raw ) ) return;
+	std::string json( raw.begin(), raw.end() ), ver;
+	std::vector<UpdFile> files;
+	if ( !ParseManifest( json, ver, files ) ) return;
+
+	// installed build id — written by the installer / previous updates
+	char cur[128] = { 0 };
+	{
+		HANDLE h = CreateFileW( Join( g_root, L"jacoop-version.txt" ).c_str(), GENERIC_READ,
+			FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL );
+		if ( h != INVALID_HANDLE_VALUE ) {
+			DWORD rd = 0;
+			ReadFile( h, cur, sizeof( cur ) - 1, &rd, NULL );
+			CloseHandle( h );
+		}
+	}
+	std::string curVer( cur );
+	while ( !curVer.empty() && ( curVer.back() == '\r' || curVer.back() == '\n' || curVer.back() == ' ' ) )
+		curVer.pop_back();
+	if ( curVer == ver ) return;	// up to date — nothing to do
+
+	// which files actually differ on disk? (md5 per target; root+bin copies
+	// share one download — a missing/mismatched target alone triggers a fetch)
+	struct Job {
+		const UpdFile	*f;
+		std::wstring	newPath;	// <root>\<name>.new staging
+		std::vector<std::wstring>	targets;
+	};
+	std::vector<Job> jobs;
+	DWORD totalBytes = 0;
+	for ( const UpdFile &f : files ) {
+		std::wstring wname( f.name.begin(), f.name.end() );
+		Job j = { &f, Join( g_root, wname + L".new" ), {} };
+		if ( f.name == "zz_jacoop.pk3" ) {
+			j.targets.push_back( Join( g_root, L"base\\zz_jacoop.pk3" ) );
+		} else if ( f.name == "JACoop.exe" ) {
+			// self — staged only; SpawnLauncherSwap applies it after exit
+		} else {
+			j.targets.push_back( Join( g_root, wname ) );
+			j.targets.push_back( Join( g_root, L"bin\\" + wname ) );
+		}
+		bool needs = false;
+		char md5[33];
+		if ( f.name == "JACoop.exe" ) {
+			needs = !( Md5File( Join( g_root, L"JACoop.exe" ), md5 ) && !_stricmp( md5, f.md5 ) );
+		} else {
+			for ( const std::wstring &t : j.targets ) {
+				if ( !( Md5File( t, md5 ) && !_stricmp( md5, f.md5 ) ) ) { needs = true; break; }
+			}
+		}
+		if ( needs ) { jobs.push_back( j ); totalBytes += f.size; }
+	}
+	if ( jobs.empty() ) {
+		// version bumped but bytes already match (e.g. local dev build)
+		HANDLE h = CreateFileW( Join( g_root, L"jacoop-version.txt" ).c_str(), GENERIC_WRITE,
+			0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL );
+		if ( h != INVALID_HANDLE_VALUE ) {
+			DWORD wr;
+			WriteFile( h, ver.c_str(), (DWORD)ver.size(), &wr, NULL );
+			WriteFile( h, "\n", 1, &wr, NULL );
+			CloseHandle( h );
+		}
+		return;
+	}
+
+	UpdShow( Tr( L"Mise à jour de JACoop…", L"Updating JACoop…" ) );
+	bool ok = true;
+	DWORD done = 0;
+	for ( Job &j : jobs ) {
+		std::wstring wpath = L"/coop/files/" + std::wstring( j.f->name.begin(), j.f->name.end() );
+		if ( !HttpGetFile( wpath.c_str(), j.newPath, j.f->size, done, totalBytes ) ) { ok = false; break; }
+		char md5[33];
+		if ( !Md5File( j.newPath, md5 ) || _stricmp( md5, j.f->md5 ) ) { ok = false; break; }
+		done += j.f->size;
+	}
+	if ( ok ) {
+		for ( Job &j : jobs ) {
+			for ( const std::wstring &t : j.targets ) {
+				CreateDirectoryW( t.substr( 0, t.find_last_of( L"\\/" ) ).c_str(), NULL );
+				CopyFileW( j.newPath.c_str(), t.c_str(), FALSE );
+			}
+			if ( j.targets.empty() ) continue;	// JACoop.exe — stays *.new
+			DeleteFileW( j.newPath.c_str() );	// engine files copied to all targets
+		}
+		HANDLE h = CreateFileW( Join( g_root, L"jacoop-version.txt" ).c_str(), GENERIC_WRITE,
+			0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL );
+		if ( h != INVALID_HANDLE_VALUE ) {
+			DWORD wr;
+			WriteFile( h, ver.c_str(), (DWORD)ver.size(), &wr, NULL );
+			WriteFile( h, "\n", 1, &wr, NULL );
+			CloseHandle( h );
+		}
+	}
+	UpdClose();
+	if ( ok && FileExists( Join( g_root, L"JACoop.exe.new" ) ) ) {
+		SpawnLauncherSwap( mode, address );
+		ExitProcess( 0 );
+	}
+}
+
 int WINAPI wWinMain( HINSTANCE, HINSTANCE, LPWSTR, int ) {
 	wchar_t exePath[MAX_PATH];
 	GetModuleFileNameW( NULL, exePath, MAX_PATH );
@@ -265,6 +620,13 @@ int WINAPI wWinMain( HINSTANCE, HINSTANCE, LPWSTR, int ) {
 		address = u;
 	}
 	address = SanitizeAddress( address );
+
+	// a previous update staged a newer launcher — apply it and relaunch
+	if ( FileExists( Join( g_root, L"JACoop.exe.new" ) ) ) {
+		SpawnLauncherSwap( mode, address );
+		return 0;
+	}
+	SelfUpdate( mode, address );
 
 	std::wstring gameData = FindGameData();
 	if ( gameData.empty() ) return 1;
