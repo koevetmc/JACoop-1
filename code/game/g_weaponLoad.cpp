@@ -207,6 +207,8 @@ const int defaultDamage[] = {
 	0,							// WP_TUSKEN_STAFF
 	0,							// WP_SCEPTER
 	0,							// WP_NOGHRI_STICK
+	0,							// WP_GRAVGUN		// coop: no ballistic damage
+	0,							// WP_PORTALGUN		// coop: no ballistic damage
 };
 
 const int defaultAltDamage[] = {
@@ -244,6 +246,8 @@ const int defaultAltDamage[] = {
 	0,						// WP_TUSKEN_STAFF
 	0,						// WP_SCEPTER
 	0,						// WP_NOGHRI_STICK
+	0,							// WP_GRAVGUN		// coop: no ballistic damage
+	0,							// WP_PORTALGUN		// coop: no ballistic damage
 };
 
 const int defaultSplashDamage[] = {
@@ -281,6 +285,8 @@ const int defaultSplashDamage[] = {
 	0,								// WP_TUSKEN_STAFF
 	0,								// WP_SCEPTER
 	0,								// WP_NOGHRI_STICK
+	0,							// WP_GRAVGUN		// coop: no ballistic damage
+	0,							// WP_PORTALGUN		// coop: no ballistic damage
 };
 
 const float defaultSplashRadius[] = {
@@ -318,6 +324,8 @@ const float defaultSplashRadius[] = {
 	0.0f,							// WP_TUSKEN_STAFF
 	0.0f,							// WP_SCEPTER
 	0.0f,							// WP_NOGHRI_STICK
+	0,							// WP_GRAVGUN		// coop: no ballistic damage
+	0,							// WP_PORTALGUN		// coop: no ballistic damage
 };
 
 const int defaultAltSplashDamage[] = {
@@ -355,6 +363,8 @@ const int defaultAltSplashDamage[] = {
 	0,								// WP_TUSKEN_STAFF
 	0,								// WP_SCEPTER
 	0,								// WP_NOGHRI_STICK
+	0,							// WP_GRAVGUN		// coop: no ballistic damage
+	0,							// WP_PORTALGUN		// coop: no ballistic damage
 };
 
 const float defaultAltSplashRadius[] = {
@@ -392,6 +402,8 @@ const float defaultAltSplashRadius[] = {
 	0.0f,							// WP_TUSKEN_STAFF
 	0.0f,							// WP_SCEPTER
 	0.0f,							// WP_NOGHRI_STICK
+	0,							// WP_GRAVGUN		// coop: no ballistic damage
+	0,							// WP_PORTALGUN		// coop: no ballistic damage
 };
 
 wpnParms_t WpnParms[] =
@@ -525,6 +537,10 @@ void WPN_WeaponType( const char **holdBuf)
 		weaponNum = WP_SCEPTER;
 	else if (!Q_stricmp(tokenStr,"WP_NOGHRI_STICK"))
 		weaponNum = WP_NOGHRI_STICK;
+	else if (!Q_stricmp(tokenStr,"WP_GRAVGUN"))
+		weaponNum = WP_GRAVGUN;
+	else if (!Q_stricmp(tokenStr,"WP_PORTALGUN"))
+		weaponNum = WP_PORTALGUN;
 	else
 	{
 		weaponNum = 0;

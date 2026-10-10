@@ -374,6 +374,10 @@ static void IT_Tag(const char **holdBuf)
 		tag = WP_SCEPTER;
 	else if (!Q_stricmp(tokenStr,"WP_NOGHRI_STICK"))
 		tag = WP_NOGHRI_STICK;
+	else if (!Q_stricmp(tokenStr,"WP_GRAVGUN"))
+		tag = WP_GRAVGUN;
+	else if (!Q_stricmp(tokenStr,"WP_PORTALGUN"))
+		tag = WP_PORTALGUN;
 	else if (!Q_stricmp(tokenStr,"AMMO_FORCE"))
 		tag = AMMO_FORCE;
 	else if (!Q_stricmp(tokenStr,"AMMO_BLASTER"))

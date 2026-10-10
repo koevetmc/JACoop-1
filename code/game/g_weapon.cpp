@@ -1602,6 +1602,12 @@ void FireWeapon( gentity_t *ent, qboolean alt_fire )
 		//else does melee attack/damage/func
 		break;
 
+	case WP_GRAVGUN:
+	case WP_PORTALGUN:
+		alert = 0;	// no ballistic shot to hear
+		G_CoopWeaponFire( ent, alt_fire );
+		break;
+
 	case WP_TUSKEN_STAFF:
 	default:
 		return;

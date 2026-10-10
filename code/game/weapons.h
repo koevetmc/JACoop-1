@@ -79,6 +79,10 @@ typedef enum //# weapon_e
 	WP_SCEPTER,
 	WP_NOGHRI_STICK,
 
+	// coop cheat weapons - granted by the gravgun/portal commands, never in the scroll list
+	WP_GRAVGUN,
+	WP_PORTALGUN,
+
 	//# #eol
 	WP_NUM_WEAPONS
 } weapon_t;

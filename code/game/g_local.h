@@ -453,6 +453,7 @@ gentity_t *G_CoopBeastController( const gentity_t *beast );	// coop: the client 
 void	G_CoopBeastCommand( gentity_t *ent );	// coop_become <type|release>: possess a creature
 void	G_CoopGravGunCommand( gentity_t *ent, qboolean dropOnly );	// gravgun / gravdrop: carry & throw props
 void	G_CoopPortalCommand( gentity_t *ent, int slot );	// portal / portal_a / portal_b / portal_clear
+void	G_CoopWeaponFire( gentity_t *ent, qboolean alt_fire );	// WP_GRAVGUN/WP_PORTALGUN fire dispatch
 void	G_CoopGravPortalFrame( void );		// per-frame gravgun carry + portal travel
 void	G_CoopGravPortalInit( void );		// per-map reset of the cheat-toy tables
 void	G_CoopBeastFrame( void );				// coop: beast anim/bite driving + stale possession cleanup

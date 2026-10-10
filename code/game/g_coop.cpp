@@ -5265,18 +5265,29 @@ static void G_CoopGravReleaseDir( gentity_t *player, const vec3_t dir )
 
 /*
 ================
-G_CoopGravGunCommand
+G_CoopGiveCheatWeapon
 
-gravgun: grab the prop you're aiming at, or throw the one you're holding.
-gravdrop: release the held prop without throwing.
+Hand a coop cheat weapon over: set the ownership bit, then make the player's
+cgame select it (local call for the host, "wp" server command for joiners).
 ================
 */
-void G_CoopGravGunCommand( gentity_t *ent, qboolean dropOnly )
+static void G_CoopGiveCheatWeapon( gentity_t *ent, int wp )
 {
-	if ( !CheatsOk( ent ) )
-	{
-		return;
-	}
+	ent->client->ps.stats[STAT_WEAPONS] |= ( 1 << wp );
+	G_CoopChangeWeapon( ent, wp );
+}
+
+/*
+================
+G_CoopGravDo
+
+The gun's actual work: grab the prop you're aiming at, or release the one
+you're holding (dropOnly sets it down, otherwise it launches). Shared by the
+gravgun command and WP_GRAVGUN's fire buttons.
+================
+*/
+static void G_CoopGravDo( gentity_t *ent, qboolean dropOnly )
+{
 	const int	cn = ent->s.number;
 	vec3_t		eye, fwd, end;
 	trace_t		tr;
@@ -5357,9 +5368,33 @@ void G_CoopGravGunCommand( gentity_t *ent, qboolean dropOnly )
 	VectorClear( best->s.pos.trDelta );
 	gravHeldFx[cn] = 0;
 
-	gi.SendServerCommand( cn, "print \"gravgun: holding %s — gravgun again to throw, gravdrop to drop\n\"",
+	gi.SendServerCommand( cn, "print \"gravgun: holding %s — fire to throw, alt-fire to drop\n\"",
 		best->item ? best->item->classname : ( best->classname ? best->classname : "prop" ) );
 	G_PlayEffect( "force/pushblur", best->currentOrigin, fwd );
+}
+
+/*
+================
+G_CoopGravGunCommand
+
+gravgun: gives you WP_GRAVGUN (draws it if needed) and does the grab/throw so
+the bare command still works like it did before the gun existed.
+gravdrop: release the held prop without throwing.
+================
+*/
+void G_CoopGravGunCommand( gentity_t *ent, qboolean dropOnly )
+{
+	if ( !CheatsOk( ent ) )
+	{
+		return;
+	}
+	if ( dropOnly )
+	{
+		G_CoopGravDo( ent, qtrue );
+		return;
+	}
+	G_CoopGiveCheatWeapon( ent, WP_GRAVGUN );
+	G_CoopGravDo( ent, qfalse );
 }
 
 /*
@@ -5457,12 +5492,38 @@ void G_CoopPortalCommand( gentity_t *ent, int slot )
 		gi.SendServerCommand( cn, "print \"portals cleared\n\"" );
 		return;
 	}
+	// drawing the gun is part of the deal now — the command still places too
+	G_CoopGiveCheatWeapon( ent, WP_PORTALGUN );
 	if ( slot < 0 )
 	{
 		slot = coopPortalNext[cn];
 		coopPortalNext[cn] ^= 1;
 	}
 	G_CoopPortalPlace( ent, slot );
+}
+
+/*
+================
+G_CoopWeaponFire
+
+WP_GRAVGUN / WP_PORTALGUN dispatch from FireWeapon. Fire and alt-fire are the
+two buttons these guns live on; the cheat commands above just grant them.
+================
+*/
+void G_CoopWeaponFire( gentity_t *ent, qboolean alt_fire )
+{
+	if ( !ent->client || ent->NPC || ent->s.number >= MAX_CLIENTS )
+	{
+		return;
+	}
+	if ( ent->s.weapon == WP_GRAVGUN )
+	{
+		G_CoopGravDo( ent, alt_fire );	// fire: grab/throw, alt: drop gently
+	}
+	else if ( ent->s.weapon == WP_PORTALGUN )
+	{
+		G_CoopPortalPlace( ent, alt_fire ? 1 : 0 );	// fire: blue A, alt: red B
+	}
 }
 
 /*
