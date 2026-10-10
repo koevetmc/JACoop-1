@@ -5178,6 +5178,8 @@ so a floor->wall pair flings you sideways — the portal-gun trick.
 #define PORTAL_ENTER_D	40.0f	// how far in front of the plane the trigger slab reaches
 #define PORTAL_CD_MS	600		// re-entry grace after a teleport
 #define PORTAL_RANGE	8192.0f
+#define PORTAL_HW		34.0f	// oval half-width — must match COOP_PORTAL_HW in cg_ents.cpp
+#define PORTAL_HH		56.0f	// oval half-height — must match COOP_PORTAL_HH in cg_ents.cpp
 
 static gentity_t *gravHeldEnt[MAX_CLIENTS];
 static int        gravHeldContents[MAX_CLIENTS];	// saved contents while carried
@@ -5590,6 +5592,34 @@ static void G_CoopPortalPlace( gentity_t *ent, int slot )
 	p->classname = "coop_portal";
 	VectorMA( tr.endpos, 2.0f, tr.plane.normal, org );
 	VectorCopy( tr.plane.normal, p->movedir );
+
+	// keep the oval's bottom out of the floor — a portal half-buried means
+	// anyone stepping through materialises below the floor.  If a drop to the
+	// oval's lower edge hits early, slide the portal up the plane (only when a
+	// wall still backs the new centre, so it can't float in mid-air).
+	if ( fabs( p->movedir[2] ) < 0.95f )
+	{
+		vec3_t	f, r, u, t0, t1;
+		trace_t	tr2;
+
+		G_CoopPortalFrame( p->movedir, f, r, u );
+		VectorMA( org, 4.0f, p->movedir, t0 );
+		VectorMA( t0, -( PORTAL_HH + 10.0f ), u, t1 );
+		gi.trace( &tr2, t0, NULL, NULL, t1, cn, MASK_SOLID, (EG2_Collision)0, 0 );
+		if ( tr2.fraction < 1.0f )
+		{
+			const float	need = ( PORTAL_HH + 10.0f ) * ( 1.0f - tr2.fraction );
+			vec3_t		slid, back;
+
+			VectorMA( org, need, u, slid );
+			VectorMA( slid, -12.0f, p->movedir, back );
+			gi.trace( &tr2, slid, NULL, NULL, back, cn, MASK_SOLID, (EG2_Collision)0, 0 );
+			if ( tr2.fraction < 1.0f )
+			{
+				VectorCopy( slid, org );
+			}
+		}
+	}
 	G_SetOrigin( p, org );
 	p->contents = 0;
 	p->clipmask = 0;
@@ -5697,14 +5727,50 @@ static void G_CoopPortalTravel( gentity_t *e, gentity_t *src, gentity_t *dst, co
 	VectorAdd( dest, dst->currentOrigin, dest );
 	VectorMA( dest, 4.0f, dst->movedir, dest );
 
+	// the mapped spot can land inside geometry — the exit portal sits lower
+	// than the entry point, or its oval is close to an edge.  Probe a clear
+	// box out along the exit normal and trace back to the plane; if even the
+	// probe is buried, slide the exit up the plane until it frees.
+	{
+		vec3_t	fB, rB, uB, probe, tryd;
+		trace_t	tr2;
+		int		k;
+
+		G_CoopPortalFrame( dst->movedir, fB, rB, uB );
+		VectorCopy( dest, tryd );
+		for ( k = 0; k < 12; k++ )
+		{
+			VectorMA( tryd, 32.0f, dst->movedir, probe );
+			gi.trace( &tr2, probe, e->mins, e->maxs, tryd, e->s.number,
+				MASK_PLAYERSOLID, (EG2_Collision)0, 0 );
+			if ( !tr2.startsolid )
+			{
+				VectorCopy( tr2.endpos, dest );
+				break;
+			}
+			VectorMA( tryd, 8.0f, uB, tryd );
+		}
+	}
+
 	if ( e->client )
 	{
+		// hand-rolled TeleportPlayer: same steps minus G_KillBox — a buddy
+		// parked at the exit shouldn't get telefragged — and keep the mapped
+		// velocity instead of zeroing it
 		AngleVectors( e->client->ps.viewangles, vaF, NULL, NULL );
 		G_CoopPortalTransform( src->movedir, dst->movedir, vaF, vaF );
 		vectoangles( vaF, exAng );
 		exAng[2] = 0;
-		TeleportPlayer( e, dest, exAng );
+
+		gi.unlinkentity( e );
+		VectorCopy( dest, e->client->ps.origin );
+		e->client->ps.origin[2] += 1;
+		VectorCopy( e->client->ps.origin, e->currentOrigin );
+		e->client->ps.eFlags ^= EF_TELEPORT_BIT;
+		SetClientViewAngle( e, exAng );
 		VectorCopy( vOut, e->client->ps.velocity );
+		PlayerStateToEntityState( &e->client->ps, &e->s );
+		gi.linkentity( e );
 	}
 	else
 	{
@@ -5870,22 +5936,36 @@ void G_CoopGravPortalFrame( void )
 			for ( int s = 0; s < 2; s++ )
 			{
 				gentity_t	*src = s ? B : A, *dst = s ? A : B;
-				vec3_t		d, radial;
-				float		dn, vn;
+				vec3_t		d, radial, c;
+				float		dn, vn, best;
+				int			k;
 
-				VectorSubtract( e->currentOrigin, src->currentOrigin, d );
-				dn = DotProduct( d, src->movedir );
-				if ( dn < -8.0f || dn > PORTAL_ENTER_D )
-				{
-					continue;
-				}
 				vn = DotProduct( vel, src->movedir );
 				if ( vn > -60.0f )
 				{
 					continue;	// must actually be moving into it
 				}
-				VectorMA( d, -dn, src->movedir, radial );
-				if ( VectorLength( radial ) > PORTAL_ENTER_R )
+
+				// the oval is ~112 units tall; a single point test misses bodies
+				// whose origin is far from it (wall portal at eye height vs an
+				// origin near the feet).  Sample feet/middle/head — any part of
+				// the body inside the oval counts as stepping through.
+				best = 1e9f;
+				for ( k = 0; k < 3; k++ )
+				{
+					VectorCopy( e->currentOrigin, c );
+					c[2] += ( k == 0 ) ? e->mins[2] :
+						( k == 1 ) ? ( e->mins[2] + e->maxs[2] ) * 0.5f : e->maxs[2];
+					VectorSubtract( c, src->currentOrigin, d );
+					dn = DotProduct( d, src->movedir );
+					if ( dn < -8.0f || dn > PORTAL_ENTER_D )
+					{
+						continue;
+					}
+					VectorMA( d, -dn, src->movedir, radial );
+					best = Q_min( best, VectorLength( radial ) );
+				}
+				if ( best > PORTAL_ENTER_R )
 				{
 					continue;
 				}
