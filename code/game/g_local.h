@@ -451,6 +451,10 @@ void	G_CoopBotCommand( gentity_t *ent );		// coop_bot [type|remove]: summon/dism
 void	G_CoopBotFrame( void );					// coop: companion top-up + leader reassignment (g_coopBots)
 gentity_t *G_CoopBeastController( const gentity_t *beast );	// coop: the client driving this NPC, or NULL
 void	G_CoopBeastCommand( gentity_t *ent );	// coop_become <type|release>: possess a creature
+void	G_CoopGravGunCommand( gentity_t *ent, qboolean dropOnly );	// gravgun / gravdrop: carry & throw props
+void	G_CoopPortalCommand( gentity_t *ent, int slot );	// portal / portal_a / portal_b / portal_clear
+void	G_CoopGravPortalFrame( void );		// per-frame gravgun carry + portal travel
+void	G_CoopGravPortalInit( void );		// per-map reset of the cheat-toy tables
 void	G_CoopBeastFrame( void );				// coop: beast anim/bite driving + stale possession cleanup
 void	G_CoopHolocronSpawn( void );			// coop: scatter holocrons (g_coopHolocrons)
 void	G_CoopHoloPicked( int cn );				// coop: holocron pickup -> set-completion reward

@@ -2237,6 +2237,7 @@ void G_CoopInitDownedCvars( void )
 	coopBotsFilled = qfalse;
 	coopBotsCheck = 0;
 	coopBotsRespawn = 0;
+	G_CoopGravPortalInit();	// cheat toys: clear held props, thrown arms, portal tables
 	memset( coopStatDowns, 0, sizeof( coopStatDowns ) );
 	memset( coopStatRevives, 0, sizeof( coopStatRevives ) );
 	memset( coopStatDeaths, 0, sizeof( coopStatDeaths ) );
@@ -5153,4 +5154,584 @@ void G_CoopSupporterFrame( void ) {
 		Info_SetValueForKey( cs, "s", G_CoopIsSupporter( ent ) ? "1" : "0" );
 		gi.SetConfigstring( CS_PLAYERS + i, cs );
 	}
+}
+
+/*
+=========================================================================
+Co-op cheat toys: gravity gun + portal gun (helpUsObi-gated like `control`)
+
+gravgun      - pick up the prop under your crosshair; run again to throw it
+gravdrop     - set the held prop down gently
+portal       - place your next portal (alternates A then B) where you aim
+portal_a / portal_b - place a specific portal
+portal_clear - remove both of your portals
+
+Portals preserve the traveller's speed through the exit portal's frame,
+so a floor->wall pair flings you sideways — the portal-gun trick.
+=========================================================================
+*/
+
+#define GRAV_HOLD_DIST	72.0f
+#define GRAV_REACH		450.0f
+#define GRAV_THROW_VEL	1600.0f
+#define PORTAL_ENTER_R	44.0f	// how close to the portal centre line counts
+#define PORTAL_ENTER_D	40.0f	// how far in front of the plane the trigger slab reaches
+#define PORTAL_CD_MS	600		// re-entry grace after a teleport
+#define PORTAL_RANGE	8192.0f
+
+static gentity_t *gravHeldEnt[MAX_CLIENTS];
+static int        gravHeldContents[MAX_CLIENTS];	// saved contents while carried
+static struct { gentity_t *ent; gentity_t *owner; int until; } gravThrown[64];
+static int        gravThrownN;
+static gentity_t *coopPortal[MAX_CLIENTS][2];		// [client][A=0,B=1]
+static int        coopPortalNext[MAX_CLIENTS];		// which slot `portal` fills next
+static int        coopPortalCd[MAX_GENTITIES];
+static int        gravHeldFx[MAX_CLIENTS];			// next swirl-effect time per holder
+
+extern void SP_fx_runner( gentity_t *ent );
+
+/*
+================
+G_CoopGravGrabbable
+
+Anything small enough to sling: items, live projectiles, breakable props.
+Players/NPCs are out — Force Grip already owns that space.
+================
+*/
+static qboolean G_CoopGravGrabbable( const gentity_t *e )
+{
+	if ( !e || !e->inuse || e->client || e->NPC || e->s.number < MAX_CLIENTS )
+	{
+		return qfalse;
+	}
+	if ( e->item || e->s.eType == ET_MISSILE )
+	{
+		return qtrue;
+	}
+	if ( e->classname && !Q_stricmp( e->classname, "misc_model_breakable" ) )
+	{
+		return qtrue;
+	}
+	return qfalse;
+}
+
+/*
+================
+G_CoopGravReleaseDir
+
+Put the held prop back into the world. dir==NULL drops it where it floats;
+otherwise it launches along dir and becomes an armed projectile that does
+impact damage on the first thing it hits.
+================
+*/
+static void G_CoopGravReleaseDir( gentity_t *player, const vec3_t dir )
+{
+	const int	cn = player->s.number;
+	gentity_t	*e = gravHeldEnt[cn];
+
+	if ( !e || !e->inuse )
+	{
+		gravHeldEnt[cn] = NULL;
+		return;
+	}
+	gravHeldEnt[cn] = NULL;
+
+	e->contents = gravHeldContents[cn];
+	e->s.groundEntityNum = ENTITYNUM_NONE;
+	e->s.pos.trType = TR_GRAVITY;
+	e->s.pos.trTime = level.time;
+	VectorCopy( e->currentOrigin, e->s.pos.trBase );
+
+	if ( dir )
+	{
+		vec3_t	vel;
+		VectorScale( dir, GRAV_THROW_VEL, vel );
+		vel[2] += 80.0f;
+		VectorCopy( vel, e->s.pos.trDelta );
+		if ( gravThrownN < (int)( sizeof( gravThrown ) / sizeof( gravThrown[0] ) ) )
+		{
+			gravThrown[gravThrownN].ent   = e;
+			gravThrown[gravThrownN].owner = player;
+			gravThrown[gravThrownN].until = level.time + 5000;
+			gravThrownN++;
+		}
+	}
+	else
+	{
+		VectorClear( e->s.pos.trDelta );
+	}
+	gi.linkentity( e );
+}
+
+/*
+================
+G_CoopGravGunCommand
+
+gravgun: grab the prop you're aiming at, or throw the one you're holding.
+gravdrop: release the held prop without throwing.
+================
+*/
+void G_CoopGravGunCommand( gentity_t *ent, qboolean dropOnly )
+{
+	if ( !CheatsOk( ent ) )
+	{
+		return;
+	}
+	const int	cn = ent->s.number;
+	vec3_t		eye, fwd, end;
+	trace_t		tr;
+
+	VectorCopy( ent->client->ps.origin, eye );
+	eye[2] += ent->client->ps.viewheight;
+	AngleVectors( ent->client->ps.viewangles, fwd, NULL, NULL );
+
+	if ( gravHeldEnt[cn] )
+	{
+		if ( dropOnly )
+		{
+			G_CoopGravReleaseDir( ent, NULL );
+		}
+		else
+		{
+			G_CoopGravReleaseDir( ent, fwd );
+		}
+		G_PlayEffect( "force/pushblur", eye, fwd );
+		return;
+	}
+	if ( dropOnly )
+	{
+		return;
+	}
+
+	// pick the grabbable prop nearest the crosshair: roughly forward,
+	// within reach, with a clear line (world geometry can't hide it)
+	VectorMA( eye, GRAV_REACH, fwd, end );
+	gentity_t	*best = NULL;
+	float		bestScore = 1.0e9f;
+	for ( int i = MAX_CLIENTS; i < globals.num_entities; i++ )
+	{
+		gentity_t	*e = &g_entities[i];
+		vec3_t		to;
+		float		dist, align;
+
+		if ( !G_CoopGravGrabbable( e ) )
+		{
+			continue;
+		}
+		VectorSubtract( e->currentOrigin, eye, to );
+		dist = VectorNormalize( to );
+		if ( dist > GRAV_REACH )
+		{
+			continue;
+		}
+		align = DotProduct( to, fwd );
+		if ( align < 0.85f )
+		{
+			continue;
+		}
+		gi.trace( &tr, eye, NULL, NULL, e->currentOrigin, cn, MASK_SOLID, (EG2_Collision)0, 0 );
+		if ( tr.fraction < 1.0f && tr.entityNum != e->s.number )
+		{
+			continue;	// behind a wall
+		}
+		const float score = dist * ( 2.0f - align );	// close + centred wins
+		if ( score < bestScore )
+		{
+			bestScore = score;
+			best = e;
+		}
+	}
+
+	if ( !best )
+	{
+		gi.SendServerCommand( cn, "print \"gravgun: nothing to grab — aim at an item, prop, or projectile\n\"" );
+		return;
+	}
+
+	gravHeldEnt[cn] = best;
+	gravHeldContents[cn] = best->contents;
+	best->contents = 0;							// untouchable/unsolid while carried
+	best->s.groundEntityNum = cn;					// keeps items from resuming gravity
+	best->s.pos.trType = TR_STATIONARY;
+	best->s.pos.trTime = level.time;
+	VectorClear( best->s.pos.trDelta );
+	gravHeldFx[cn] = 0;
+
+	gi.SendServerCommand( cn, "print \"gravgun: holding %s — gravgun again to throw, gravdrop to drop\n\"",
+		best->item ? best->item->classname : ( best->classname ? best->classname : "prop" ) );
+	G_PlayEffect( "force/pushblur", best->currentOrigin, fwd );
+}
+
+/*
+================
+G_CoopPortalPlace
+
+Spawn (or respawn) a portal marker + its fx buddy on the aimed-at surface.
+================
+*/
+static void G_CoopPortalPlace( gentity_t *ent, int slot )
+{
+	const int	cn = ent->s.number;
+	vec3_t		eye, fwd, end, org;
+	trace_t		tr;
+
+	VectorCopy( ent->client->ps.origin, eye );
+	eye[2] += ent->client->ps.viewheight;
+	AngleVectors( ent->client->ps.viewangles, fwd, NULL, NULL );
+	VectorMA( eye, PORTAL_RANGE, fwd, end );
+	gi.trace( &tr, eye, NULL, NULL, end, cn, MASK_SOLID, (EG2_Collision)0, 0 );
+
+	if ( tr.fraction >= 1.0f )
+	{
+		gi.SendServerCommand( cn, "print \"portal: aim at a wall, floor, or ceiling\n\"" );
+		return;
+	}
+
+	// free the old portal in this slot (its fx buddy rides along in ->owner)
+	{
+		gentity_t *old = coopPortal[cn][slot];
+		if ( old && old->inuse )
+		{
+			if ( old->owner && old->owner->inuse )
+			{
+				G_FreeEntity( old->owner );
+			}
+			G_FreeEntity( old );
+		}
+		coopPortal[cn][slot] = NULL;
+	}
+
+	gentity_t *p = G_Spawn();
+	p->classname = "coop_portal";
+	VectorMA( tr.endpos, 2.0f, tr.plane.normal, org );
+	VectorCopy( tr.plane.normal, p->movedir );
+	G_SetOrigin( p, org );
+	p->contents = 0;
+	p->clipmask = 0;
+	gi.linkentity( p );
+
+	// visible glow: a looping fx runner — blue for A, red for B
+	gentity_t *fx = G_Spawn();
+	fx->fxFile = (char *)( slot == 0 ? "mp/bluecrystalrespawn" : "mp/redcrystalrespawn" );
+	fx->classname = "coop_portalfx";
+	VectorMA( org, 4.0f, tr.plane.normal, fx->s.origin );
+	VectorCopy( fx->s.origin, fx->currentOrigin );
+	SP_fx_runner( fx );
+	p->owner = fx;
+
+	coopPortal[cn][slot] = p;
+	gi.SendServerCommand( cn, "print \"portal %s placed — %s\n\"", slot ? "B" : "A",
+		( coopPortal[cn][0] && coopPortal[cn][1] ) ? "pair linked, walk in" : "place its twin to link" );
+}
+
+/*
+================
+G_CoopPortalCommand
+
+portal: place the next slot (alternating A/B); portal_a/portal_b: a given
+slot; portal_clear: remove both.
+================
+*/
+void G_CoopPortalCommand( gentity_t *ent, int slot )
+{
+	if ( !CheatsOk( ent ) )
+	{
+		return;
+	}
+	const int	cn = ent->s.number;
+	if ( slot >= 2 )
+	{
+		for ( int s = 0; s < 2; s++ )
+		{
+			gentity_t *p = coopPortal[cn][s];
+			if ( p && p->inuse )
+			{
+				if ( p->owner && p->owner->inuse )
+				{
+					G_FreeEntity( p->owner );
+				}
+				G_FreeEntity( p );
+			}
+			coopPortal[cn][s] = NULL;
+		}
+		gi.SendServerCommand( cn, "print \"portals cleared\n\"" );
+		return;
+	}
+	if ( slot < 0 )
+	{
+		slot = coopPortalNext[cn];
+		coopPortalNext[cn] ^= 1;
+	}
+	G_CoopPortalPlace( ent, slot );
+}
+
+/*
+================
+G_CoopPortalBasis
+
+Tangent frame for a portal normal (self-contained — rebuilt from movedir
+each use).
+================
+*/
+static void G_CoopPortalBasis( const vec3_t n, vec3_t right, vec3_t up )
+{
+	vec3_t	tmp;
+	if ( fabs( n[2] ) > 0.9f )
+	{
+		VectorSet( tmp, 1, 0, 0 );
+	}
+	else
+	{
+		VectorSet( tmp, 0, 0, 1 );
+	}
+	CrossProduct( n, tmp, right );
+	VectorNormalize( right );
+	CrossProduct( right, n, up );
+}
+
+static void G_CoopNormalAngles( const vec3_t n, vec3_t angles )
+{
+	angles[0] = (float)( -asin( n[2] ) * ( 180.0 / M_PI ) );
+	angles[1] = (float)( atan2( n[1], n[0] ) * ( 180.0 / M_PI ) );
+	angles[2] = 0;
+}
+
+/*
+================
+G_CoopPortalTravel
+
+Velocity-mapped teleport through a linked portal pair: the incoming speed
+is preserved, redirected out of the destination portal's frame.
+================
+*/
+static void G_CoopPortalTravel( gentity_t *e, gentity_t *src, gentity_t *dst, const vec3_t vel )
+{
+	vec3_t	srcR, srcU, dstR, dstU, vOut, dest, exAng;
+	float	vn, vr, vu;
+
+	G_CoopPortalBasis( src->movedir, srcR, srcU );
+	G_CoopPortalBasis( dst->movedir, dstR, dstU );
+
+	vn = -DotProduct( vel, src->movedir );
+	vr = DotProduct( vel, srcR );
+	vu = DotProduct( vel, srcU );
+	VectorScale( dst->movedir, vn, vOut );
+	VectorMA( vOut, vr, dstR, vOut );
+	VectorMA( vOut, vu, dstU, vOut );
+
+	VectorMA( dst->currentOrigin, 24.0f, dst->movedir, dest );
+
+	if ( e->client )
+	{
+		G_CoopNormalAngles( dst->movedir, exAng );
+		TeleportPlayer( e, dest, exAng );
+		VectorCopy( vOut, e->client->ps.velocity );
+	}
+	else
+	{
+		gi.unlinkentity( e );
+		VectorCopy( dest, e->currentOrigin );
+		VectorCopy( dest, e->s.origin );
+		VectorCopy( dest, e->s.pos.trBase );
+		e->s.pos.trType = TR_GRAVITY;
+		e->s.pos.trTime = level.time;
+		VectorCopy( vOut, e->s.pos.trDelta );
+		gi.linkentity( e );
+	}
+	coopPortalCd[e->s.number] = level.time + PORTAL_CD_MS;
+	G_PlayEffect( "mp/spawn", dest );
+}
+
+/*
+================
+G_CoopGravPortalFrame
+
+Per-frame: parked props follow their holder's crosshair, thrown props do
+impact damage, and portals carry whoever steps through. Self-healing —
+dead or disconnected holders just drop what they held, and orphan portals
+are freed.
+================
+*/
+void G_CoopGravPortalFrame( void )
+{
+	int	cn;
+
+	for ( cn = 0; cn < MAX_CLIENTS; cn++ )
+	{
+		gentity_t	*player = &g_entities[cn];
+		gentity_t	*held = gravHeldEnt[cn];
+		const qboolean alive = (qboolean)( player->inuse && player->client &&
+			player->client->pers.connected == CON_CONNECTED && player->health > 0 );
+
+		if ( held && !held->inuse )
+		{
+			gravHeldEnt[cn] = NULL;
+			held = NULL;
+		}
+		if ( held && !alive )
+		{
+			G_CoopGravReleaseDir( player, NULL );
+			held = NULL;
+		}
+		if ( held )
+		{
+			vec3_t	eye, fwd, want;
+			trace_t	tr;
+			float	dist;
+
+			VectorCopy( player->client->ps.origin, eye );
+			eye[2] += player->client->ps.viewheight;
+			AngleVectors( player->client->ps.viewangles, fwd, NULL, NULL );
+			VectorMA( eye, GRAV_HOLD_DIST, fwd, want );
+			// don't park it inside a wall — pull it toward the holder
+			gi.trace( &tr, eye, held->mins, held->maxs, want, cn, MASK_SOLID, (EG2_Collision)0, 0 );
+			dist = GRAV_HOLD_DIST * ( tr.entityNum == held->s.number ? 1.0f : Q_max( tr.fraction, 0.15f ) );
+			VectorMA( eye, dist, fwd, want );
+
+			G_SetOrigin( held, want );
+			held->s.pos.trType = TR_STATIONARY;	// G_RunItem tries to fall again otherwise
+			held->s.pos.trTime = level.time;
+			VectorClear( held->s.pos.trDelta );
+			held->s.groundEntityNum = cn;
+			gi.linkentity( held );
+
+			if ( level.time >= gravHeldFx[cn] )
+			{
+				gravHeldFx[cn] = level.time + 400;
+				G_PlayEffect( "force/pushblur", held->currentOrigin );
+			}
+		}
+
+		// disconnected owner: their portals go too
+		if ( !player->client || player->client->pers.connected != CON_CONNECTED )
+		{
+			for ( int s = 0; s < 2; s++ )
+			{
+				gentity_t *p = coopPortal[cn][s];
+				if ( p && p->inuse )
+				{
+					if ( p->owner && p->owner->inuse )
+					{
+						G_FreeEntity( p->owner );
+					}
+					G_FreeEntity( p );
+				}
+				coopPortal[cn][s] = NULL;
+			}
+		}
+	}
+
+	// thrown props: fast ones hurt the first thing they reach
+	for ( int i = 0; i < gravThrownN; i++ )
+	{
+		gentity_t *e = gravThrown[i].ent;
+		if ( !e || !e->inuse || level.time > gravThrown[i].until ||
+			VectorLength( e->s.pos.trDelta ) < 400.0f )
+		{
+			gravThrown[i] = gravThrown[--gravThrownN];
+			i--;
+			continue;
+		}
+		gentity_t *list[MAX_GENTITIES];
+		const int n = G_RadiusList( e->currentOrigin, 64.0f, e, qtrue, list );
+		for ( int v = 0; v < n; v++ )
+		{
+			gentity_t *victim = list[v];
+			if ( !victim || victim == e || victim == gravThrown[i].owner ||
+				( !victim->client && !victim->NPC ) || victim->health <= 0 )
+			{
+				continue;
+			}
+			const float speed = VectorLength( e->s.pos.trDelta );
+			int dmg = (int)( 20.0f + ( speed - 400.0f ) / 15.0f );
+			if ( dmg > 150 ) dmg = 150;
+			G_Damage( victim, e, gravThrown[i].owner, NULL, victim->currentOrigin,
+				dmg, 0, MOD_CRUSH, 0 );
+			gravThrown[i] = gravThrown[--gravThrownN];
+			i--;
+			break;
+		}
+	}
+
+	// portals: approach the plane fast enough and you're through
+	for ( cn = 0; cn < MAX_CLIENTS; cn++ )
+	{
+		gentity_t *A = coopPortal[cn][0], *B = coopPortal[cn][1];
+		if ( !A || !A->inuse || !B || !B->inuse )
+		{
+			continue;
+		}
+		for ( int i = 0; i < globals.num_entities; i++ )
+		{
+			gentity_t	*e = &g_entities[i];
+			vec3_t		vel;
+
+			if ( !e->inuse || e == A || e == B || e == A->owner || e == B->owner )
+			{
+				continue;
+			}
+			if ( coopPortalCd[i] > level.time )
+			{
+				continue;
+			}
+			if ( e->client )
+			{
+				VectorCopy( e->client->ps.velocity, vel );
+			}
+			else if ( e->item || e->s.eType == ET_MISSILE ||
+				( e->classname && !Q_stricmp( e->classname, "misc_model_breakable" ) ) )
+			{
+				VectorCopy( e->s.pos.trDelta, vel );
+			}
+			else
+			{
+				continue;
+			}
+
+			for ( int s = 0; s < 2; s++ )
+			{
+				gentity_t	*src = s ? B : A, *dst = s ? A : B;
+				vec3_t		d, radial;
+				float		dn, vn;
+
+				VectorSubtract( e->currentOrigin, src->currentOrigin, d );
+				dn = DotProduct( d, src->movedir );
+				if ( dn < -8.0f || dn > PORTAL_ENTER_D )
+				{
+					continue;
+				}
+				vn = DotProduct( vel, src->movedir );
+				if ( vn > -60.0f )
+				{
+					continue;	// must actually be moving into it
+				}
+				VectorMA( d, -dn, src->movedir, radial );
+				if ( VectorLength( radial ) > PORTAL_ENTER_R )
+				{
+					continue;
+				}
+				G_CoopPortalTravel( e, src, dst, vel );
+				break;
+			}
+		}
+	}
+}
+
+/*
+================
+G_CoopGravPortalInit
+
+Per-map reset — entity pointers die with the level, only the tables need
+clearing. Called beside the other coop state resets.
+================
+*/
+void G_CoopGravPortalInit( void )
+{
+	memset( gravHeldEnt, 0, sizeof( gravHeldEnt ) );
+	memset( gravThrown, 0, sizeof( gravThrown ) );
+	gravThrownN = 0;
+	memset( coopPortal, 0, sizeof( coopPortal ) );
+	memset( coopPortalNext, 0, sizeof( coopPortalNext ) );
+	memset( coopPortalCd, 0, sizeof( coopPortalCd ) );
+	memset( gravHeldFx, 0, sizeof( gravHeldFx ) );
 }

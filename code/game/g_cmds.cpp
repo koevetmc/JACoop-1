@@ -1476,6 +1476,36 @@ void ClientCommand( int clientNum ) {
 		G_CoopBeastCommand( ent );	// coop: possess a creature (sandworm/rancor/wampa)
 		return;
 	}
+	if (Q_stricmp (cmd, "gravgun") == 0)
+	{
+		G_CoopGravGunCommand( ent, qfalse );	// cheat: grab the aimed prop, or throw the held one
+		return;
+	}
+	if (Q_stricmp (cmd, "gravdrop") == 0)
+	{
+		G_CoopGravGunCommand( ent, qtrue );	// cheat: set the held prop down
+		return;
+	}
+	if (Q_stricmp (cmd, "portal") == 0)
+	{
+		G_CoopPortalCommand( ent, -1 );	// cheat: place next portal (alternates A/B) at crosshair
+		return;
+	}
+	if (Q_stricmp (cmd, "portal_a") == 0)
+	{
+		G_CoopPortalCommand( ent, 0 );	// cheat: place the blue portal
+		return;
+	}
+	if (Q_stricmp (cmd, "portal_b") == 0)
+	{
+		G_CoopPortalCommand( ent, 1 );	// cheat: place the red portal
+		return;
+	}
+	if (Q_stricmp (cmd, "portal_clear") == 0)
+	{
+		G_CoopPortalCommand( ent, 2 );	// cheat: remove both portals
+		return;
+	}
 	if (Q_stricmp (cmd, "coop_qchat") == 0)
 	{
 		G_CoopQChatCommand( ent );	// coop: preset chat line, bindable

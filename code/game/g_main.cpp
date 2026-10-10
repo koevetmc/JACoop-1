@@ -2228,6 +2228,7 @@ void G_RunFrame( int levelTime ) {
 	G_CoopWaveFrame();		// coop: endless waves when g_coopWaves is on
 	G_CoopBotFrame();		// coop: companion allies when g_coopBots is on
 	G_CoopBeastFrame();		// coop: possessed-beast driving (coop_become)
+	G_CoopGravPortalFrame();	// coop: gravgun carry + portal travel (cheat toys)
 	{
 		extern void G_CoopPhysicsFrame( void );
 		G_CoopPhysicsFrame();	// coop: g_mpPhysics -> bg_mpPhysics + CS_COOP_PHYSICS
