@@ -5571,6 +5571,13 @@ static void G_CoopPortalPlace( gentity_t *ent, int slot )
 		gi.SendServerCommand( cn, "print \"portal: aim at a wall, floor, or ceiling\n\"" );
 		return;
 	}
+	// only world geometry — a portal pinned to a door or mover is left
+	// hanging in mid-air the moment it slides
+	if ( tr.entityNum != ENTITYNUM_WORLD )
+	{
+		gi.SendServerCommand( cn, "print \"portal: needs a static surface — not doors or movers\n\"" );
+		return;
+	}
 
 	// free the old portal in this slot (its fx buddy rides along in ->owner)
 	{
