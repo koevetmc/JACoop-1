@@ -5174,7 +5174,7 @@ so a floor->wall pair flings you sideways — the portal-gun trick.
 #define GRAV_HOLD_DIST	72.0f
 #define GRAV_REACH		450.0f
 #define GRAV_THROW_VEL	1600.0f
-#define PORTAL_ENTER_R	44.0f	// how close to the portal centre line counts
+#define PORTAL_ENTER_R	50.0f	// how close to the portal centre line counts
 #define PORTAL_ENTER_D	40.0f	// how far in front of the plane the trigger slab reaches
 #define PORTAL_CD_MS	600		// re-entry grace after a teleport
 #define PORTAL_RANGE	8192.0f
@@ -5988,20 +5988,15 @@ void G_CoopGravPortalFrame( void )
 			{
 				gentity_t	*src = s ? B : A, *dst = s ? A : B;
 				vec3_t		d, radial, c;
-				float		dn, vn, best;
+				float		dn, vn, best, bestDn;
 				int			k;
-
-				vn = DotProduct( vel, src->movedir );
-				if ( vn > -60.0f )
-				{
-					continue;	// must actually be moving into it
-				}
 
 				// the oval is ~112 units tall; a single point test misses bodies
 				// whose origin is far from it (wall portal at eye height vs an
 				// origin near the feet).  Sample feet/middle/head — any part of
 				// the body inside the oval counts as stepping through.
 				best = 1e9f;
+				bestDn = 0.0f;
 				for ( k = 0; k < 3; k++ )
 				{
 					VectorCopy( e->currentOrigin, c );
@@ -6014,9 +6009,21 @@ void G_CoopGravPortalFrame( void )
 						continue;
 					}
 					VectorMA( d, -dn, src->movedir, radial );
-					best = Q_min( best, VectorLength( radial ) );
+					if ( VectorLength( radial ) < best )
+					{
+						best = VectorLength( radial );
+						bestDn = dn;
+					}
 				}
 				if ( best > PORTAL_ENTER_R )
+				{
+					continue;
+				}
+				// two ways through: moving into the plane fast enough, or a
+				// body part already past it — a portal in the floor is a hole,
+				// so anyone standing on it falls in, no forward speed needed
+				vn = DotProduct( vel, src->movedir );
+				if ( vn > -60.0f && bestDn > -0.5f )
 				{
 					continue;
 				}
