@@ -5760,13 +5760,15 @@ static void G_CoopPortalTravel( gentity_t *e, gentity_t *src, gentity_t *dst, co
 
 	// the mapped spot can land inside geometry — the exit portal sits lower
 	// than the entry point, or its oval is near an edge.  Box-test the exit
-	// point directly, then slide along the plane (up, down, left, right)
-	// until the box is free.
+	// point directly, then slide along the plane (up, down, left, right) and
+	// progressively out of the surface until the box is free.  If NOTHING
+	// frees, refuse the trip — staying put beats waking up inside a rock.
 	{
-		vec3_t	fB, rB, uB, probe, tryd;
-		trace_t	tr2;
-		int		k, d;
-		qboolean placed = qfalse;
+		vec3_t			fB, rB, uB, probe, probe2, tryd;
+		trace_t			tr2;
+		int				k, d, o;
+		qboolean		placed = qfalse;
+		static const float offs[3] = { 0.0f, 24.0f, 64.0f };
 
 		G_CoopPortalFrame( dst->movedir, fB, rB, uB );
 		for ( d = 0; d < 4 && !placed; d++ )
@@ -5775,20 +5777,30 @@ static void G_CoopPortalTravel( gentity_t *e, gentity_t *src, gentity_t *dst, co
 			const float		step = ( d & 1 ) ? -8.0f : 8.0f;
 
 			VectorCopy( dest, tryd );
-			for ( k = 0; k < 12; k++ )
+			for ( k = 0; k < 16 && !placed; k++ )
 			{
-				// stationary box-overlap test: nudge 1u out of the plane
-				VectorMA( tryd, 1.0f, dst->movedir, probe );
-				gi.trace( &tr2, tryd, e->mins, e->maxs, probe, e->s.number,
-					MASK_PLAYERSOLID, (EG2_Collision)0, 0 );
-				if ( !tr2.startsolid && !tr2.allsolid )
+				for ( o = 0; o < 3; o++ )
 				{
-					VectorCopy( tryd, dest );
-					placed = qtrue;
-					break;
+					VectorMA( tryd, offs[o], dst->movedir, probe );
+					// stationary box-overlap test: nudge 1u further out
+					VectorMA( probe, 1.0f, dst->movedir, probe2 );
+					gi.trace( &tr2, probe, e->mins, e->maxs, probe2, e->s.number,
+						MASK_PLAYERSOLID, (EG2_Collision)0, 0 );
+					if ( !tr2.startsolid && !tr2.allsolid )
+					{
+						VectorCopy( probe, dest );
+						placed = qtrue;
+						break;
+					}
 				}
 				VectorMA( tryd, step, *dir, tryd );
 			}
+		}
+		if ( !placed )
+		{
+			// no free spot anywhere near the exit — don't move them
+			coopPortalCd[e->s.number] = level.time + 250;
+			return;
 		}
 	}
 
