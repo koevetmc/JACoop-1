@@ -13588,8 +13588,8 @@ static void PM_Weapon( void )
 
  	if(!delayed_fire)
 	{
-		if ( pm->ps->weapon == WP_MELEE	&& (pm->ps->clientNum < MAX_CLIENTS||PM_ControlledByPlayer()) )
-		{//melee
+		if ( ( pm->ps->weapon == WP_MELEE || pm->ps->weapon == WP_GRAVGUN )	&& (pm->ps->clientNum < MAX_CLIENTS||PM_ControlledByPlayer()) )
+		{//melee / gravgun: edge-triggered, one grab-throw per press (portal stays auto-fire, holding repaints)
 			if ( (pm->cmd.buttons&(BUTTON_ATTACK|BUTTON_ALT_ATTACK)) != (BUTTON_ATTACK|BUTTON_ALT_ATTACK) )
 			{//not holding both buttons
 				if ( (pm->cmd.buttons&BUTTON_ATTACK)&&(pm->ps->pm_flags&PMF_ATTACK_HELD) )
