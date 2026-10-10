@@ -5798,7 +5798,9 @@ static void G_CoopPortalTravel( gentity_t *e, gentity_t *src, gentity_t *dst, co
 		if ( !placed )
 		{
 			// no free spot anywhere near the exit — don't move them
-			coopPortalCd[e->s.number] = level.time + 250;
+			coopPortalCd[e->s.number] = level.time + 800;
+			gi.SendServerCommand( e->client ? e->s.number : -1,
+				"print \"portal: exit blocked — no clear spot on the other side\n\"" );
 			return;
 		}
 	}
@@ -6019,11 +6021,15 @@ void G_CoopGravPortalFrame( void )
 				{
 					continue;
 				}
-				// two ways through: moving into the plane fast enough, or a
-				// body part already past it — a portal in the floor is a hole,
-				// so anyone standing on it falls in, no forward speed needed
+				// three ways through: moving into the plane fast enough, a body
+				// part already past it, or a grounded body part inside the mouth
+				// (terrain bulges in front of the plane on convex rocks — being
+				// grounded on the disk means you're in the hole either way).
+				// Airborne bodies still need real plane contact or speed, so
+				// hopping over a floor portal doesn't yank you in mid-jump.
 				vn = DotProduct( vel, src->movedir );
-				if ( vn > -60.0f && bestDn > -0.5f )
+				if ( vn > -60.0f && bestDn > -0.5f &&
+					!( e->s.groundEntityNum != ENTITYNUM_NONE && bestDn <= 24.0f ) )
 				{
 					continue;
 				}
