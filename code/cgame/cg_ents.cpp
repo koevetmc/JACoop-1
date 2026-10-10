@@ -1601,6 +1601,22 @@ static void CG_CoopPortalPane( centity_t *cent, const entityState_t *s1 )
 	const qboolean		linked = (qboolean)( s1->angles2[1] > 0.0f );
 	const byte			rimR = slot ? 255 : 30, rimG = slot ? 130 : 90, rimB = slot ? 20 : 255;
 
+	// grow-in: the oval swells from a point over ~300ms after placement,
+	// easing out like Portal's opening snap
+	float				open;
+	int					age = 0;
+
+	if ( cg.snap )
+	{
+		age = cg.snap->serverTime - s1->time;
+	}
+	if ( age < 0 ) age = 0;
+	open = age / 300.0f;
+	if ( open > 1.0f ) open = 1.0f;
+	open = 1.0f - ( 1.0f - open ) * ( 1.0f - open );
+	const float	hw = COOP_PORTAL_HW * open;
+	const float	hh = COOP_PORTAL_HH * open;
+
 	if ( !winShader )
 	{
 		winShader  = cgi_R_RegisterShader( "coop_portal_win" );
@@ -1625,19 +1641,20 @@ static void CG_CoopPortalPane( centity_t *cent, const entityState_t *s1 )
 	// the pane: once linked this is the see-through window — coop_portal_win
 	// is `sort portal` + depthWrite, so the renderer renders the exit view
 	// behind it and its depth write hides the wall the pane sits on.
-	// Unlinked: a soft colored fill marks the spot.
+	// Unlinked: a soft colored fill marks the spot.  Sheen stays faint so
+	// the remote view reads clearly.
 	memset( verts, 0, sizeof( verts ) );
 	VectorCopy( center, verts[0].xyz );
 	verts[0].st[0] = 0.5f; verts[0].st[1] = 0.5f;
 	verts[0].modulate[0] = rimR;
 	verts[0].modulate[1] = rimG;
 	verts[0].modulate[2] = rimB;
-	verts[0].modulate[3] = linked ? 28 : 110;
+	verts[0].modulate[3] = linked ? 14 : 110;
 	for ( i = 0; i < COOP_PORTAL_SEG; i++ )
 	{
 		const float a = (float)i / COOP_PORTAL_SEG * 2.0f * (float)M_PI;
-		VectorMA( center, cos( a ) * COOP_PORTAL_HW, right, verts[i + 1].xyz );
-		VectorMA( verts[i + 1].xyz, sin( a ) * COOP_PORTAL_HH, up, verts[i + 1].xyz );
+		VectorMA( center, cos( a ) * hw, right, verts[i + 1].xyz );
+		VectorMA( verts[i + 1].xyz, sin( a ) * hh, up, verts[i + 1].xyz );
 		verts[i + 1].st[0] = 0.5f + cos( a ) * 0.5f;
 		verts[i + 1].st[1] = 0.5f + sin( a ) * 0.5f;
 		memcpy( verts[i + 1].modulate, verts[0].modulate, 4 );
@@ -1645,12 +1662,15 @@ static void CG_CoopPortalPane( centity_t *cent, const entityState_t *s1 )
 	verts[COOP_PORTAL_SEG + 1] = verts[1];
 	cgi_R_AddPolyToScene( linked ? winShader : fillShader, COOP_PORTAL_SEG + 2, verts );
 
-	// the bold rim — a solid saturated annulus hugging the pane edge, then a
-	// wider soft additive halo for the glow
+	// the rim — a solid saturated annulus hugging the pane edge.  Each segment
+	// breathes on its own phase so the edge undulates like Portal's liquid rim,
+	// with a wider soft additive halo behind it.
 	for ( i = 0; i < 16; i++ )
 	{
 		const float	a0 = (float)i / 16 * 2.0f * (float)M_PI;
 		const float	a1 = (float)( i + 1 ) / 16 * 2.0f * (float)M_PI;
+		const float	wob0 = 1.0f + 0.05f * sin( cg.time * 0.004f + i * 0.785f );
+		const float	wob1 = 1.0f + 0.05f * sin( cg.time * 0.004f + ( i + 1 ) * 0.785f );
 		polyVert_t	q[4], g[4];
 		int			k;
 
@@ -1659,13 +1679,14 @@ static void CG_CoopPortalPane( centity_t *cent, const entityState_t *s1 )
 		for ( k = 0; k < 4; k++ )
 		{
 			const float	aa = ( k == 0 || k == 3 ) ? a0 : a1;
+			const float	wob = ( k == 0 || k == 3 ) ? wob0 : wob1;
 
 			// solid rim: pane edge out to +7
-			const float	rw = ( k < 2 ) ? COOP_PORTAL_HW + 7.0f : COOP_PORTAL_HW - 1.0f;
-			const float	rh = ( k < 2 ) ? COOP_PORTAL_HH + 7.0f : COOP_PORTAL_HH - 1.0f;
+			const float	rw = ( ( k < 2 ) ? hw + 7.0f : hw - 1.0f ) * wob;
+			const float	rh = ( ( k < 2 ) ? hh + 7.0f : hh - 1.0f ) * wob;
 			// glow halo: +7 out to +20
-			const float	gw = ( k < 2 ) ? COOP_PORTAL_HW + 20.0f : COOP_PORTAL_HW + 7.0f;
-			const float	gh = ( k < 2 ) ? COOP_PORTAL_HH + 20.0f : COOP_PORTAL_HH + 7.0f;
+			const float	gw = ( k < 2 ) ? hw + 20.0f : hw + 7.0f;
+			const float	gh = ( k < 2 ) ? hh + 20.0f : hh + 7.0f;
 
 			VectorMA( center, cos( aa ) * rw, right, q[k].xyz );
 			VectorMA( q[k].xyz, sin( aa ) * rh, up, q[k].xyz );
@@ -1687,6 +1708,48 @@ static void CG_CoopPortalPane( centity_t *cent, const entityState_t *s1 )
 		}
 		cgi_R_AddPolyToScene( rimShader, 4, q );
 		cgi_R_AddPolyToScene( glowShader, 4, g );
+	}
+
+	// the shimmer — two additive bands slowly swirling inside the window in
+	// opposite directions, the watery shimmer over the live view
+	if ( open > 0.5f )
+	{
+		int	arc;
+
+		for ( arc = 0; arc < 2; arc++ )
+		{
+			const float	base = ( arc ? -1.0f : 1.0f ) * cg.time * 0.0012f + arc * 2.6f;
+			const float	span = 2.2f;
+			const int	aseg = 10;
+
+			for ( i = 0; i < aseg; i++ )
+			{
+				const float	a0 = base + (float)i / aseg * span;
+				const float	a1 = base + (float)( i + 1 ) / aseg * span;
+				const float	fade = sin( (float)i / aseg * M_PI );	// fade at the arc's ends
+				polyVert_t	q[4];
+				int			k;
+
+				memset( q, 0, sizeof( q ) );
+				for ( k = 0; k < 4; k++ )
+				{
+					const float	aa = ( k == 0 || k == 3 ) ? a0 : a1;
+					const float	sw = ( k < 2 ) ? hw * 0.95f : hw * 0.55f;
+					const float	sh = ( k < 2 ) ? hh * 0.95f : hh * 0.55f;
+
+					VectorMA( center, cos( aa ) * sw, right, q[k].xyz );
+					VectorMA( q[k].xyz, sin( aa ) * sh, up, q[k].xyz );
+					q[k].st[0] = 0.5f + cos( aa ) * 0.5f;
+					q[k].st[1] = 0.5f + sin( aa ) * 0.5f;
+					// additive blending ignores alpha — fade by scaling rgb
+					q[k].modulate[0] = (byte)( ( rimR * 0.35f + 70 ) * fade );
+					q[k].modulate[1] = (byte)( ( rimG * 0.35f + 70 ) * fade );
+					q[k].modulate[2] = (byte)( ( rimB * 0.35f + 70 ) * fade );
+					q[k].modulate[3] = 255;
+				}
+				cgi_R_AddPolyToScene( glowShader, 4, q );
+			}
+		}
 	}
 }
 

@@ -5662,6 +5662,7 @@ static void G_CoopPortalPlace( gentity_t *ent, int slot )
 	p->s.eType = ET_PORTAL;					// drives the renderer's see-through path
 	p->s.angles[0] = DirToByte( p->movedir );	// our own normal, for the window poly
 	p->s.angles2[0] = slot + 1;				// coop marker + color slot
+	p->s.time = level.time;					// spawn time, for the client's open-up anim
 	gi.linkentity( p );
 
 	coopPortal[cn][slot] = p;
