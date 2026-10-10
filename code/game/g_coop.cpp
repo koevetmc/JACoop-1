@@ -5500,6 +5500,8 @@ static void G_CoopPortalFx( gentity_t *p, int slot, qboolean want )
 	gentity_t *fx = G_Spawn();
 	fx->fxFile = (char *)( slot == 0 ? "mp/bluecrystalrespawn" : "mp/redcrystalrespawn" );
 	fx->classname = "coop_portalfx";
+	VectorSet( fx->mins, -8.0f, -8.0f, -8.0f );
+	VectorSet( fx->maxs, 8.0f, 8.0f, 8.0f );
 	VectorMA( p->s.pos.trBase, 4.0f, p->movedir, fx->s.origin );
 	VectorCopy( fx->s.origin, fx->currentOrigin );
 	SP_fx_runner( fx );
@@ -5591,6 +5593,10 @@ static void G_CoopPortalPlace( gentity_t *ent, int slot )
 	G_SetOrigin( p, org );
 	p->contents = 0;
 	p->clipmask = 0;
+	// a point-sized box can land wholly in a solid leaf and get numClusters=0
+	// (never snapshot) — span enough to always reach the room's open leaf
+	VectorSet( p->mins, -24.0f, -24.0f, -24.0f );
+	VectorSet( p->maxs, 24.0f, 24.0f, 24.0f );
 	p->svFlags |= SVF_PORTAL;				// merge the exit's PVS into snapshots
 	p->s.eType = ET_PORTAL;					// drives the renderer's see-through path
 	p->s.angles[0] = DirToByte( p->movedir );	// our own normal, for the window poly
