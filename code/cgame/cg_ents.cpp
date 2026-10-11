@@ -2003,18 +2003,51 @@ static void CG_Portal( centity_t *cent ) {
 	// create the render entity
 	memset (&ent, 0, sizeof(ent));
 	VectorCopy( cent->lerpOrigin, ent.origin );
-	VectorCopy( s1->origin2, ent.oldorigin );
-	ByteToDir( s1->eventParm, ent.axis[0] );
-	PerpendicularVector( ent.axis[1], ent.axis[0] );
 
-	// negating this tends to get the directions like they want
-	// we really should have a camera roll value
-	VectorSubtract( vec3_origin, ent.axis[1], ent.axis[1] );
+	// JACoop: coop portals use a view-dependent remote camera — the
+	// viewer's own camera mapped through the portal pair — so moving
+	// your head changes what you see through the window like a real
+	// opening, instead of a fixed feed from the exit anchor
+	if ( s1->angles2[0] > 0.0f )
+	{
+		vec3_t	srcN, dstOrg, dstN, rel, mapped, t;
 
-	CrossProduct( ent.axis[0], ent.axis[1], ent.axis[2] );
+		ByteToDir( (int)s1->angles[0], srcN );
+		VectorNormalize( srcN );
+		VectorCopy( s1->origin2, dstOrg );
+		ByteToDir( s1->eventParm, dstN );
+		VectorScale( dstN, -1.0f, dstN );
+		VectorNormalize( dstN );
+
+		VectorSubtract( cg.refdef.vieworg, cent->lerpOrigin, rel );
+		CG_CoopPortalTransform( srcN, dstN, rel, mapped );
+		VectorAdd( dstOrg, mapped, ent.oldorigin );
+
+		// the renderer negates axis[0] and axis[1] — feed it the flipped
+		// mapped axes and the remote camera ends up exactly T(view camera)
+		CG_CoopPortalTransform( srcN, dstN, cg.refdef.viewaxis[0], t );
+		VectorScale( t, -1.0f, ent.axis[0] );
+		CG_CoopPortalTransform( srcN, dstN, cg.refdef.viewaxis[1], t );
+		VectorScale( t, -1.0f, ent.axis[1] );
+		CG_CoopPortalTransform( srcN, dstN, cg.refdef.viewaxis[2], ent.axis[2] );
+		ent.frame = 0;		// no continuous spin
+		ent.skinNum = 0;	// no roll — the mapped camera carries its own roll
+	}
+	else
+	{
+		VectorCopy( s1->origin2, ent.oldorigin );
+		ByteToDir( s1->eventParm, ent.axis[0] );
+		PerpendicularVector( ent.axis[1], ent.axis[0] );
+
+		// negating this tends to get the directions like they want
+		// we really should have a camera roll value
+		VectorSubtract( vec3_origin, ent.axis[1], ent.axis[1] );
+
+		CrossProduct( ent.axis[0], ent.axis[1], ent.axis[2] );
+		ent.frame = s1->frame;		// rotation speed
+		ent.skinNum = (int)(s1->clientNum/256.0 * 360);	// roll offset
+	}
 	ent.reType = RT_PORTALSURFACE;
-	ent.frame = s1->frame;		// rotation speed
-	ent.skinNum = (int)(s1->clientNum/256.0 * 360);	// roll offset
 
 /*
 Ghoul2 Insert Start
