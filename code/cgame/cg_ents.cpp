@@ -2021,6 +2021,32 @@ static void CG_Portal( centity_t *cent ) {
 
 		VectorSubtract( cg.refdef.vieworg, cent->lerpOrigin, rel );
 		CG_CoopPortalTransform( srcN, dstN, rel, mapped );
+		// the fully-mapped eye lands behind the exit plane (inside the
+		// wall/floor) whenever you're on the entry side — a camera in a
+		// solid leaf gets an empty PVS and the window renders skybox.
+		// Pin the remote eye to the exit aperture instead: depth clamped
+		// just outside the plane, in-plane offset clamped near the oval —
+		// close viewers still get real parallax, far ones see the scene
+		// as if through a pinhole in the exit portal.
+		{
+			vec3_t	fB, rB, uB, pin;
+			float	dn, rd, ud;
+
+			CG_CoopPortalFrame( dstN, fB, rB, uB );
+			dn = DotProduct( mapped, dstN );
+			rd = DotProduct( mapped, rB );
+			ud = DotProduct( mapped, uB );
+			if ( dn < 4.0f || fabs( rd ) > 48.0f || fabs( ud ) > 64.0f )
+			{
+				rd = Q_max( -48.0f, Q_min( 48.0f, rd ) );
+				ud = Q_max( -64.0f, Q_min( 64.0f, ud ) );
+				dn = Q_max( dn, 4.0f );
+				VectorScale( dstN, dn, pin );
+				VectorMA( pin, rd, rB, pin );
+				VectorMA( pin, ud, uB, pin );
+				VectorCopy( pin, mapped );
+			}
+		}
 		VectorAdd( dstOrg, mapped, ent.oldorigin );
 
 		// the renderer negates axis[0] and axis[1] — feed it the flipped
