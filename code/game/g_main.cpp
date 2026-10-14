@@ -2519,21 +2519,28 @@ IGhoul2InfoArray &TheGameGhoul2InfoArray()
 ================
 G_CoopReportDeath
 
-Writes "seq|victim|killer" into the sv_coopDeath cvar — the engine's
-status code polls it and posts each player death to the site feed.
+Writes "seq|victim|killer|account|key|x,y,z" into the sv_coopDeath
+cvar — the engine's status code polls it and posts each player death
+to the site feed.
 ================
 */
 void G_CoopReportDeath( const char *victim, const char *killer, int clientNum ) {
 	static int seq = 0;
 	char ui[MAX_INFO_STRING] = "";
 	const char *acct = "", *key = "";
+	vec3_t pos = { 0, 0, 0 };
 	if ( clientNum >= 0 && clientNum < MAX_CLIENTS ) {
 		gi.GetUserinfo( clientNum, ui, sizeof( ui ) );
 		acct = Info_ValueForKey( ui, "advjk_account" );
 		key = Info_ValueForKey( ui, "advjk_key" );
+		if ( g_entities[clientNum].client ) {
+			VectorCopy( g_entities[clientNum].client->ps.origin, pos );
+		}
 	}
-	gi.cvar_set( "sv_coopDeath", va( "%i|%s|%s|%s|%s", ++seq,
-		victim ? victim : "?", killer ? killer : "world", acct, key ) );
+	// trailing x,y,z marks where the victim died — site overlays it on the map
+	gi.cvar_set( "sv_coopDeath", va( "%i|%s|%s|%s|%s|%d,%d,%d", ++seq,
+		victim ? victim : "?", killer ? killer : "world", acct, key,
+		(int)pos[0], (int)pos[1], (int)pos[2] ) );
 }
 
 /*
@@ -2578,11 +2585,11 @@ void G_CoopReportKill( int clientNum, int meansOfDeath ) {
 ================
 G_CoopTrailFrame / G_CoopResetTrails
 
-Opt-in movement trail: a player with "advjk_trail" = 1 in their userinfo
-gets their origin sampled every ~450ms. Points stage per client and
-flush through sv_coopTrail as "cn|x,y,z,x,y,z;cn|x,y,z" — under the
-1KB cvar limit. The engine polls the cvar each frame, appends the new
-points to its own buffers, and posts them when the map completes.
+Movement trail: every player's origin is sampled every ~450ms. Points
+stage per client and flush through sv_coopTrail as
+"cn|x,y,z,x,y,z;cn|x,y,z" — under the 1KB cvar limit. The engine polls
+the cvar each frame, appends the new points to its own buffers, and
+posts them when the map completes.
 ================
 */
 static char coopTrailPending[MAX_CLIENTS][768];
@@ -2624,17 +2631,12 @@ void G_CoopTrailFrame( void ) {
 
 	for ( i = 0; i < MAX_CLIENTS; i++ ) {
 		gentity_t	*ent = &g_entities[i];
-		char		ui[MAX_INFO_STRING];
 		int			len;
 
 		if ( !G_CoopIsPlayer( ent ) || level.time < coopTrailNext[i] ) {
 			continue;
 		}
 		coopTrailNext[i] = level.time + 450;
-		gi.GetUserinfo( i, ui, sizeof( ui ) );
-		if ( !atoi( Info_ValueForKey( ui, "advjk_trail" ) ) ) {
-			continue;	// opt-in only
-		}
 		len = strlen( coopTrailPending[i] );
 		if ( len < (int)sizeof( coopTrailPending[i] ) - 40 ) {
 			Com_sprintf( coopTrailPending[i] + len, sizeof( coopTrailPending[i] ) - len,
@@ -2648,19 +2650,14 @@ void G_CoopTrailFrame( void ) {
 		nextFlush = level.time + 400;
 		G_CoopTrailFlush();
 
-		// coop: live positions for the site's map tracker — same opt-in rule:
+		// coop: live positions for the site's map tracker —
 		// "cn|x,y;cn|x,y" with each player's freshest sample
 		{
 			char live[640]; int loff = 0;
 			live[0] = 0;
 			for ( i = 0; i < MAX_CLIENTS; i++ ) {
 				gentity_t	*ent = &g_entities[i];
-				char		ui[MAX_INFO_STRING];
 				if ( !G_CoopIsPlayer( ent ) ) {
-					continue;
-				}
-				gi.GetUserinfo( i, ui, sizeof( ui ) );
-				if ( !atoi( Info_ValueForKey( ui, "advjk_trail" ) ) ) {
 					continue;
 				}
 				if ( loff < (int)sizeof( live ) - 40 ) {

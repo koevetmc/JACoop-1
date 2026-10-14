@@ -2166,8 +2166,8 @@ void Cmd_CallVote_f( gentity_t *ent ) {
 	if ( numArgs > 1 )
 		Q_strncpyz( arg2, ConcatArgs( 2 ), sizeof( arg2 ) );
 
-	// filter ; \n \r
-	if ( Q_strchrs( arg1, ";\r\n" ) || Q_strchrs( arg2, ";\r\n" ) ) {
+	// filter ; \n \r "
+	if ( Q_strchrs( arg1, ";\r\n\"" ) || Q_strchrs( arg2, ";\r\n\"" ) ) {
 		trap->SendServerCommand( ent-g_entities, "print \"Invalid vote string.\n\"" );
 		return;
 	}
@@ -2395,8 +2395,8 @@ void Cmd_CallTeamVote_f( gentity_t *ent ) {
 	if ( numArgs > 1 )
 		Q_strncpyz( arg2, ConcatArgs( 2 ), sizeof( arg2 ) );
 
-	// filter ; \n \r
-	if ( Q_strchrs( arg1, ";\r\n" ) || Q_strchrs( arg2, ";\r\n" ) ) {
+	// filter ; \n \r "
+	if ( Q_strchrs( arg1, ";\r\n\"" ) || Q_strchrs( arg2, ";\r\n\"" ) ) {
 		trap->SendServerCommand( ent-g_entities, "print \"Invalid team vote string.\n\"" );
 		return;
 	}

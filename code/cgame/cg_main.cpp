@@ -519,7 +519,6 @@ static cvarTable_t cvarTable[] = {
 	// GetUserinfo without the player having to know about `setu`
 	{ NULL, "advjk_account", "", CVAR_USERINFO | CVAR_ARCHIVE },
 	{ NULL, "advjk_key", "", CVAR_USERINFO | CVAR_ARCHIVE },
-	{ NULL, "advjk_trail", "1", CVAR_USERINFO | CVAR_ARCHIVE },
 };
 
 static const size_t cvarTableSize = ARRAY_LEN( cvarTable );

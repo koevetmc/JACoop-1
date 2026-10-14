@@ -536,7 +536,8 @@ static void StatusPostAttempt( const char *mapname ) {
 StatusCheckDeath
 
 The game reports each player death through the sv_coopDeath cvar
-("seq|victim|killer" — pipes can't appear in names). A change means a
+("seq|victim|killer|acct|key|x,y,z" — pipes can't appear in names).
+A change means a
 fresh death: report it. Called every frame before the interval gate so
 deaths post promptly instead of waiting for the next status push.
 ================
@@ -544,8 +545,8 @@ deaths post promptly instead of waiting for the next status push.
 static void StatusCheckDeath( void ) {
 	static char	lastDeath[192];
 	char		death[192], victim[128], killer[128], map[128],
-			account[128], vkey[128], fields[640];
-	char		*v, *k, *a, *kk;
+			account[128], vkey[128], pos[64], fields[768];
+	char		*v, *k, *a, *kk, *pp;
 	const char	*d = Cvar_VariableString( "sv_coopDeath" );
 
 	if ( !d[0] || !strcmp( d, lastDeath ) ) {
@@ -561,14 +562,20 @@ static void StatusCheckDeath( void ) {
 	if ( !k ) return;
 	*k++ = 0;
 	// death now holds the seq (unused), v = victim, k = killer;
-	// optional "|account|key" tail links the victim to a site account
-	account[0] = vkey[0] = 0;
+	// optional "|account|key|x,y,z" tail links the victim to a site
+	// account and marks where they died for the site's map overlay
+	account[0] = vkey[0] = pos[0] = 0;
 	a = strchr( k, '|' );
 	if ( a ) {
 		*a++ = 0;
 		kk = strchr( a, '|' );
 		if ( kk ) {
 			*kk++ = 0;
+			pp = strchr( kk, '|' );
+			if ( pp ) {
+				*pp++ = 0;
+				Q_strncpyz( pos, pp, sizeof( pos ) );
+			}
 			Q_strncpyz( vkey, kk, sizeof( vkey ) );
 		}
 		Q_strncpyz( account, a, sizeof( account ) );
@@ -587,8 +594,8 @@ static void StatusCheckDeath( void ) {
 				",\"account\":\"%s\",\"key\":\"%s\"", escA, escK );
 		}
 		Com_sprintf( fields, sizeof( fields ),
-			"\"victim\":\"%s\",\"killer\":\"%s\",\"map\":\"%s\"%s",
-			victim, killer, map, acctFields );
+			"\"victim\":\"%s\",\"killer\":\"%s\",\"map\":\"%s\",\"pos\":\"%s\"%s",
+			victim, killer, map, pos, acctFields );
 	}
 	StatusFire( "death", fields );
 }

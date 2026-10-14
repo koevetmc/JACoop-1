@@ -38,9 +38,8 @@ author and want yours removed, open an issue and it comes out.
 | Dynamic light for weapons | `r_dynamiclight 1` (renderer default) |
 | Ingame menus / npcSP | `F6` co-op menu (lobby, player/skin, force points, rescue teleport); `npc spawn <type>` console command |
 
-Site integration: `advjk_trail` defaults to **1** — every player's live position
-and completed route trail are posted to the co-op site automatically
-(`seta advjk_trail 0` to opt out).
+Site integration: every player's live position and completed route trail
+are posted to the co-op site automatically — always on, no opt-in needed.
 
 ## Deliberately not bundled
 
